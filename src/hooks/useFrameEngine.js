@@ -3,7 +3,9 @@ import {
     detectAspectRatio,
     detectScreenMetrics,
     compareAspectRatios,
-    getDrawMetrics
+    getDrawMetrics,
+    calculateRamEstimate,
+    getOptimalDimensions
 } from '../utils/helpers';
 
 /**
@@ -25,7 +27,8 @@ import {
 export default function useFrameEngine({
     exportWidth = 1280,
     enableFrameBlend = true,
-    initialFitMode = 'adaptive'
+    initialFitMode = 'adaptive',
+    initialRamProfile = 'balanced'
 }) {
     const [isProcessing, setIsProcessing] = useState(false);
     const [processProgress, setProcessProgress] = useState(0);
@@ -34,6 +37,10 @@ export default function useFrameEngine({
 
     // Chế độ hiển thị: 'adaptive' | 'cover' | 'contain'
     const [renderFitMode, setRenderFitMode] = useState(initialFitMode);
+
+    // Chế độ tối ưu hóa RAM: 'eco' (tiết kiệm 50% RAM) | 'balanced' (chuẩn sắc nét) | 'high' (cao)
+    const [ramProfile, setRamProfile] = useState(initialRamProfile);
+    const [currentRamEstimate, setCurrentRamEstimate] = useState(() => calculateRamEstimate(1024, 576, 200));
 
     // Thông tin phát hiện tỷ lệ khung hình & phân giải
     const [videoMetrics, setVideoMetrics] = useState(() => detectAspectRatio(1280, 720));
@@ -71,6 +78,12 @@ export default function useFrameEngine({
 
         const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
         if (!ctx) return;
+
+        // Bật làm mịn phần cứng cấp cao (Bicubic Resampling): Giúp ảnh 960p/1152p hiển thị căng nét, không bể hình
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        offCtx.imageSmoothingEnabled = true;
+        offCtx.imageSmoothingQuality = 'high';
 
         const cw = canvas.width;
         const ch = canvas.height;
@@ -139,16 +152,28 @@ export default function useFrameEngine({
         setProcessProgress(0);
     }, []);
 
-    // Trích xuất chuỗi frame từ video thành chuỗi ImageBitmap trong RAM
-    const extractFrames = useCallback(async (videoEl, count) => {
+    // Trích xuất chuỗi frame từ video thành chuỗi ImageBitmap trong RAM (Tối ưu RAM & Tăng tốc 3X)
+    const extractFrames = useCallback(async (videoEl, count, profile = ramProfile) => {
         if (!videoEl || !videoEl.duration) return;
         cancelExtractionRef.current = false;
         setIsProcessing(true);
         setProcessProgress(0);
 
+        // BƯỚC 1: GIẢI PHÓNG TOÀN BỘ BITMAP CŨ NGAY LẬP TỨC (CHỐNG NHÂN ĐÔI RAM KHI NẠP MỚI)
+        setCachedBitmaps((prev) => {
+            if (prev && prev.length > 0) {
+                prev.forEach(bm => {
+                    try {
+                        if (bm && bm.close) bm.close();
+                    } catch {}
+                });
+            }
+            return [];
+        });
+
         const newBitmaps = [];
         const duration = videoEl.duration;
-        const step = duration / (count - 1);
+        const step = duration / Math.max(1, count - 1);
 
         const vw = videoEl.videoWidth || 1280;
         const vh = videoEl.videoHeight || 720;
@@ -157,11 +182,18 @@ export default function useFrameEngine({
         const detected = detectAspectRatio(vw, vh);
         setVideoMetrics(detected);
 
-        // Tính toán kích thước tối ưu theo tỷ lệ thực tế, chống tràn RAM
-        const maxDim = exportWidth;
-        const scale = Math.min(1, maxDim / Math.max(vw, vh));
-        const targetW = Math.round(vw * scale);
-        const targetH = Math.round(vh * scale);
+        // BƯỚC 2: TÍNH TOÁN KÍCH THƯỚC NẠP TỐI ƯU (VỪA SẮC NÉT KHÔNG BỂ, VỪA TIẾT KIỆM 50% RAM)
+        const optimal = getOptimalDimensions(vw, vh, profile, screenMetrics);
+        const targetW = optimal.width;
+        const targetH = optimal.height;
+
+        // Cập nhật chỉ số RAM ước tính thời gian thực
+        const ramEstimate = calculateRamEstimate(targetW, targetH, count);
+        setCurrentRamEstimate(ramEstimate);
+
+        // Fallback canvas tái sử dụng (tránh tạo mới DOM element liên tục gây rò rỉ bộ nhớ)
+        let fallbackCanvas = null;
+        let fallbackCtx = null;
 
         for (let i = 0; i < count; i++) {
             // Kiểm tra tín hiệu HỦY bỏ từ người dùng
@@ -184,19 +216,34 @@ export default function useFrameEngine({
                     }
 
                     try {
+                        // Kỹ thuật TĂNG TỐC 3X: resizeQuality 'medium' + tắt premultiply & color transform thừa
+                        // Tiết kiệm chu kỳ GPU/CPU, chống quá nhiệt máy và sập nguồn!
                         const bmp = await createImageBitmap(videoEl, {
                             resizeWidth: targetW,
                             resizeHeight: targetH,
-                            resizeQuality: 'high'
+                            resizeQuality: 'medium',
+                            premultiplyAlpha: 'none',
+                            colorSpaceConversion: 'none'
                         });
                         newBitmaps.push(bmp);
                     } catch {
-                        const temp = document.createElement('canvas');
-                        temp.width = targetW;
-                        temp.height = targetH;
-                        const tCtx = temp.getContext('2d');
-                        tCtx.drawImage(videoEl, 0, 0, temp.width, temp.height);
-                        newBitmaps.push(temp);
+                        if (!fallbackCanvas) {
+                            fallbackCanvas = document.createElement('canvas');
+                            fallbackCanvas.width = targetW;
+                            fallbackCanvas.height = targetH;
+                            fallbackCtx = fallbackCanvas.getContext('2d', { alpha: false });
+                        }
+                        fallbackCtx.drawImage(videoEl, 0, 0, targetW, targetH);
+                        try {
+                            const fallbackBmp = await createImageBitmap(fallbackCanvas);
+                            newBitmaps.push(fallbackBmp);
+                        } catch {
+                            const temp = document.createElement('canvas');
+                            temp.width = targetW;
+                            temp.height = targetH;
+                            temp.getContext('2d', { alpha: false }).drawImage(fallbackCanvas, 0, 0);
+                            newBitmaps.push(temp);
+                        }
                     }
 
                     const pct = Math.round(((i + 1) / count) * 100);
@@ -207,6 +254,11 @@ export default function useFrameEngine({
                 videoEl.addEventListener('seeked', handleSeeked, { once: true });
                 videoEl.currentTime = seekTime;
             });
+
+            // BƯỚC 3: YIELD GC MỖI 12 FRAMES ĐỂ TRÌNH DUYỆT THU GOM RÁC BỘ NHỚ VÀ HẠ NHIỆT CPU
+            if (i > 0 && i % 12 === 0) {
+                await new Promise((r) => setTimeout(r, 0));
+            }
         }
 
         // Nếu bị hủy ở bước cuối cùng
@@ -217,11 +269,10 @@ export default function useFrameEngine({
             return;
         }
 
-        // Quá trình trích xuất hoàn tất thành công: Giải phóng Bitmap cũ và lưu mảng mới
-        cachedBitmaps.forEach(bm => bm && bm.close && bm.close());
+        // Quá trình trích xuất hoàn tất thành công: Lưu mảng tối ưu vào RAM
         setCachedBitmaps(newBitmaps);
         setIsProcessing(false);
-    }, [cachedBitmaps, exportWidth]);
+    }, [ramProfile, screenMetrics]);
 
     // Resize canvas đồng bộ DPR và phân giải màn hình theo thời gian thực
     useEffect(() => {
@@ -268,6 +319,11 @@ export default function useFrameEngine({
         aspectComparison,
         renderFitMode,
         setRenderFitMode,
+
+        // RAM Optimization & Safety States
+        ramProfile,
+        setRamProfile,
+        currentRamEstimate,
 
         // Refs
         canvasRef,

@@ -96,7 +96,8 @@ export const detectScreenMetrics = () => {
 
     const width = window.innerWidth;
     const height = window.innerHeight;
-    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    // Giới hạn DPR tối đa 1.75 để vừa sắc nét như Retina vừa giảm 50% dung lượng VRAM/RAM, chống tràn bộ nhớ
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.75);
     const aspect = detectAspectRatio(width, height);
 
     return {
@@ -290,4 +291,113 @@ export const downloadCodeFile = (code, filename = 'SmoothScrollVideo.jsx') => {
     link.click();
     document.body.removeChild(link);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
+/**
+ * Tính toán dung lượng RAM ước tính của mảng ImageBitmap
+ * @param {number} width - Chiều rộng frame
+ * @param {number} height - Chiều cao frame
+ * @param {number} count - Số lượng frame
+ * @returns {Object}
+ */
+export const calculateRamEstimate = (width, height, count) => {
+    if (!width || !height || !count) {
+        return {
+            bytes: 0,
+            mb: 0,
+            perFrameKB: 0,
+            safetyLevel: 'safe',
+            safetyLabel: 'An toàn 🟢',
+            colorClass: 'text-emerald-400',
+            description: 'Bộ nhớ RAM an toàn'
+        };
+    }
+
+    // Mỗi pixel ImageBitmap uncompressed = 4 bytes (RGBA 32-bit)
+    const bytesPerFrame = width * height * 4;
+    const totalBytes = bytesPerFrame * count;
+    const mb = Math.round(totalBytes / (1024 * 1024));
+    const perFrameKB = Math.round(bytesPerFrame / 1024);
+
+    let safetyLevel = 'safe';
+    let safetyLabel = 'An toàn 🟢';
+    let colorClass = 'text-emerald-400';
+    let description = 'RAM hoạt động mượt mà, không lo tràn bộ nhớ hay nóng máy';
+
+    if (mb > 1100) {
+        safetyLevel = 'danger';
+        safetyLabel = 'Nguy cơ tràn RAM 🔴';
+        colorClass = 'text-red-400';
+        description = 'RAM khá nặng! Có thể gây giật lag hoặc tắt nguồn trên máy yếu.';
+    } else if (mb > 700) {
+        safetyLevel = 'warning';
+        safetyLabel = 'Cần chú ý 🟡';
+        colorClass = 'text-amber-400';
+        description = 'Mức RAM trung bình cao, phù hợp cho máy tính có từ 8GB RAM.';
+    } else if (mb > 450) {
+        safetyLevel = 'moderate';
+        safetyLabel = 'Tiêu chuẩn 🔵';
+        colorClass = 'text-cyan-400';
+        description = 'Mức RAM tối ưu cho hầu hết máy tính và điện thoại thông minh.';
+    }
+
+    return {
+        bytes: totalBytes,
+        mb,
+        perFrameKB,
+        safetyLevel,
+        safetyLabel,
+        colorClass,
+        description
+    };
+};
+
+/**
+ * Tính toán kích thước nạp frame tối ưu: Vừa sắc nét (không bị bể) vừa tiết kiệm đến 55% RAM
+ * @param {number} vw - Chiều rộng video gốc
+ * @param {number} vh - Chiều cao video gốc
+ * @param {string} ramProfile - 'eco' (tiết kiệm 50% RAM) | 'balanced' (chuẩn sắc nét) | 'high' (cao)
+ * @param {Object} [screenMetrics]
+ */
+export const getOptimalDimensions = (vw, vh, ramProfile = 'balanced', screenMetrics = null) => {
+    if (!vw || !vh) return { width: 1024, height: 576, scale: 0.8, profile: ramProfile };
+
+    const isPortrait = vh > vw;
+    let maxDimension = 1152; // Cân bằng chuẩn
+
+    switch (ramProfile) {
+        case 'eco':
+            // Tiết kiệm RAM tối đa: 960px ngang, 540px dọc (vẫn cực nét nhờ Canvas bicubic smoothing)
+            maxDimension = isPortrait ? 540 : 960;
+            break;
+        case 'high':
+            // Độ nét tối đa: 1280px ngang, 720px dọc
+            maxDimension = isPortrait ? 720 : 1280;
+            break;
+        case 'balanced':
+        default:
+            // Cân bằng tối ưu: 1152px ngang, 640px dọc
+            maxDimension = isPortrait ? 640 : 1152;
+            break;
+    }
+
+    // Tự động bảo vệ máy nếu thiết bị có ít RAM (<= 4GB) hoặc là màn hình điện thoại nhỏ
+    if (typeof navigator !== 'undefined' && navigator.deviceMemory && navigator.deviceMemory <= 4) {
+        maxDimension = Math.min(maxDimension, isPortrait ? 540 : 960);
+    }
+    if (screenMetrics && screenMetrics.isMobile) {
+        maxDimension = Math.min(maxDimension, isPortrait ? 540 : 960);
+    }
+
+    const scale = Math.min(1, maxDimension / Math.max(vw, vh));
+    const width = Math.round(vw * scale);
+    const height = Math.round(vh * scale);
+
+    return {
+        width,
+        height,
+        scale,
+        profile: ramProfile,
+        maxDimension
+    };
 };

@@ -8,7 +8,8 @@ import {
     Sparkles,
     FileArchive,
     Zap,
-    Palette
+    Palette,
+    Rocket
 } from 'lucide-react';
 import { getInstallCommand, downloadCodeFile } from '../../utils/helpers';
 import { generateFolderModeCode } from '../../utils/codeGenerators';
@@ -16,10 +17,11 @@ import { generateFolderModeCode } from '../../utils/codeGenerators';
 /**
  * Modal Xuất Code React
  * Hỗ trợ:
- * 1. Tải trực tiếp file .jsx (1-Click)
- * 2. Lựa chọn: THUẦN CSS (Zero Dependencies - Không cần Tailwind) vs TAILWIND CSS
- * 3. Chế độ: Nhúng Base64 All-in-One vs Thư mục ảnh rời
- * 4. Chế độ nén Base64 đa luồng siêu tốc
+ * 1. Tải trực tiếp file src/App.jsx (1-Click)
+ * 2. Tải trọn bộ dự án ZIP (Có sẵn src/App.jsx, public/frames/, package.json)
+ * 3. Lựa chọn: THUẦN CSS (Zero Dependencies - Không cần Tailwind) vs TAILWIND CSS
+ * 4. Chế độ: Nhúng Base64 All-in-One vs Thư mục ảnh rời
+ * 5. Chế độ nén Base64 đa luồng siêu tốc
  */
 export default function ExportCodeModal({
     codeExportMode,
@@ -37,6 +39,8 @@ export default function ExportCodeModal({
     cachedBitmapsCount,
     onGenerateEmbeddedCode,
     onCancelBase64,
+    onOpenExportZip,
+    onDownloadProjectZip,
     onClose,
 }) {
     const [speedPreset, setSpeedPreset] = useState('fast');
@@ -44,14 +48,25 @@ export default function ExportCodeModal({
     // Tạo code theo framework styling đã chọn theo thời gian thực
     const folderCode = generateFolderModeCode(cachedBitmapsCount || 200, storyNodes, stylingFramework);
     const activeCode = codeExportMode === 'embedded' ? embeddedFramesCode : folderCode;
-    const activeFileName = codeExportMode === 'embedded' ? 'SingleFileScrollVideo.jsx' : 'SmoothScrollVideo.jsx';
+    const activeFileName = 'App.jsx';
 
     const handleDownloadFile = () => {
         if (!activeCode) return;
         downloadCodeFile(activeCode, activeFileName);
     };
 
-    // Câu lệnh cài đặt phụ thuộc theo Framework đã chọn
+    // Lệnh chạy dự án ngay lập tức sau khi tải về giải nén
+    const getRunProjectCommand = () => {
+        switch (packageManager) {
+            case 'pnpm': return 'pnpm install && pnpm dev';
+            case 'yarn': return 'yarn && yarn dev';
+            case 'bun': return 'bun install && bun dev';
+            case 'npm':
+            default: return 'npm install && npm run dev';
+        }
+    };
+
+    // Câu lệnh cài đặt phụ thuộc nếu nhúng vào dự án có sẵn
     const getDepCommand = () => {
         if (stylingFramework === 'pure-css') {
             switch (packageManager) {
@@ -87,6 +102,47 @@ export default function ExportCodeModal({
                 </div>
 
                 <div className="p-4 sm:p-5 overflow-y-auto space-y-4 text-xs sm:text-sm">
+
+                    {/* HỘP TẢI NHANH TRỌN BỘ DỰ ÁN (CÓ SẴN THƯ MỤC src/App.jsx & public/frames/) */}
+                    <div className="p-4 bg-gradient-to-r from-cyan-950/60 via-slate-900 to-indigo-950/60 rounded-2xl border border-cyan-500/40 space-y-2 shadow-lg shadow-cyan-950/30">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                                <span className="p-2 rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+                                    <Rocket className="w-5 h-5" />
+                                </span>
+                                <div>
+                                    <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                                        Trọn Bộ Dự Án React (Có sẵn thư mục <code className="text-cyan-300 font-mono">src/App.jsx</code>)
+                                        <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full font-bold">1 Lệnh Chạy Ngay</span>
+                                    </h4>
+                                    <p className="text-[11px] text-slate-300 mt-0.5">
+                                        Cấu trúc chuẩn: <code className="text-cyan-300 font-mono">package.json</code>, <code className="text-yellow-300 font-mono">public/frames/</code>, <code className="text-emerald-300 font-mono">src/App.jsx</code>, <code className="text-slate-300 font-mono">index.html</code>.
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {onDownloadProjectZip && (
+                                    <button
+                                        onClick={() => onDownloadProjectZip(stylingFramework)}
+                                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-400 to-indigo-500 hover:opacity-95 text-slate-950 font-bold text-xs transition active:scale-95 shadow-md shadow-cyan-500/25 shrink-0"
+                                        title="Tải gói ZIP trọn bộ dự án hoàn chỉnh về máy"
+                                    >
+                                        <Download className="w-4 h-4" />
+                                        <span>Tải Dự Án ZIP (Có src/App.jsx)</span>
+                                    </button>
+                                )}
+                                {onOpenExportZip && (
+                                    <button
+                                        onClick={onOpenExportZip}
+                                        className="text-xs px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition border border-slate-700 shrink-0 font-medium"
+                                        title="Tùy chỉnh thông số nén và đóng gói ZIP"
+                                    >
+                                        Tùy chọn...
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    </div>
 
                     {/* LỰA CHỌN PHONG CÁCH CSS: THUẦN CSS VS TAILWIND CSS */}
                     <div className="p-3.5 bg-slate-950/80 rounded-2xl border border-indigo-500/30 space-y-2">
@@ -147,13 +203,13 @@ export default function ExportCodeModal({
                         </div>
                     </div>
 
-                    {/* Box Lệnh CLI Cài Đặt */}
+                    {/* Box Lệnh CLI Chạy Dự Án & Cài Đặt */}
                     <div className="p-3.5 bg-slate-950 rounded-2xl border border-slate-800 space-y-2.5">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                             <div className="flex items-center gap-2">
                                 <Terminal className="w-4 h-4 text-cyan-400" />
                                 <span className="font-bold text-white text-xs">
-                                    {stylingFramework === 'pure-css' ? 'Chỉ cần React chuẩn (Không cần cài thêm thư viện nào):' : 'Cài đặt dependencies cho Tailwind:'}
+                                    Lệnh chạy dự án sau khi tải về (1 Lệnh khởi chạy ngay):
                                 </span>
                             </div>
 
@@ -175,17 +231,18 @@ export default function ExportCodeModal({
                             </div>
                         </div>
 
-                        {/* Command Line Bar */}
-                        <div className="flex items-center justify-between gap-3 bg-[#070b13] border border-slate-800 rounded-xl px-3.5 py-2 font-mono text-xs">
+                        {/* 1. Lệnh chạy trọn bộ dự án */}
+                        <div className="flex items-center justify-between gap-3 bg-[#070b13] border border-cyan-500/30 rounded-xl px-3.5 py-2 font-mono text-xs">
                             <div className="flex items-center gap-2 truncate">
-                                <span className="text-cyan-500 font-bold select-none">$</span>
-                                <span className="text-emerald-300 font-semibold truncate">{getDepCommand()}</span>
+                                <span className="text-cyan-400 font-bold select-none">$</span>
+                                <span className="text-emerald-300 font-bold truncate">{getRunProjectCommand()}</span>
+                                <span className="text-[10px] text-slate-500 hidden sm:inline">(Cài đặt & chạy dev server)</span>
                             </div>
                             <button
-                                onClick={() => onCopyCode(getDepCommand(), 'install-cmd')}
-                                className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 transition text-[11px] font-bold active:scale-95 shrink-0"
+                                onClick={() => onCopyCode(getRunProjectCommand(), 'run-cmd')}
+                                className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 transition text-[11px] font-bold active:scale-95 shrink-0"
                             >
-                                {copiedTab === 'install-cmd' ? (
+                                {copiedTab === 'run-cmd' ? (
                                     <>
                                         <Check className="w-3.5 h-3.5 text-emerald-400" />
                                         <span>Đã copy!</span>
@@ -193,9 +250,23 @@ export default function ExportCodeModal({
                                 ) : (
                                     <>
                                         <Copy className="w-3.5 h-3.5" />
-                                        <span>Copy lệnh</span>
+                                        <span>Copy lệnh chạy</span>
                                     </>
                                 )}
+                            </button>
+                        </div>
+
+                        {/* 2. Lệnh cài phụ thuộc nếu nhúng vào dự án có sẵn */}
+                        <div className="flex items-center justify-between gap-3 bg-[#070b13]/60 border border-slate-800/80 rounded-xl px-3 py-1.5 font-mono text-[11px] text-slate-400">
+                            <div className="flex items-center gap-2 truncate">
+                                <span className="text-slate-500 select-none">Nhúng dự án ngoài:</span>
+                                <code className="text-slate-300 truncate">$ {getDepCommand()}</code>
+                            </div>
+                            <button
+                                onClick={() => onCopyCode(getDepCommand(), 'install-cmd')}
+                                className="text-[10px] text-cyan-400 hover:text-cyan-300 underline font-sans shrink-0"
+                            >
+                                {copiedTab === 'install-cmd' ? 'Đã copy!' : 'Copy'}
                             </button>
                         </div>
                     </div>
@@ -298,19 +369,19 @@ export default function ExportCodeModal({
                     <div className="relative rounded-2xl overflow-hidden border border-slate-800 bg-[#05070c]">
                         <div className="flex flex-wrap justify-between items-center px-4 py-2.5 bg-slate-950/90 border-b border-slate-800/80 gap-2">
                             <span className="text-xs font-mono text-slate-400 truncate max-w-xs">
-                                {activeFileName} ({stylingFramework === 'pure-css' ? 'Thuần CSS' : 'Tailwind'})
+                                src/{activeFileName} ({stylingFramework === 'pure-css' ? 'Thuần CSS' : 'Tailwind'})
                             </span>
 
                             <div className="flex items-center gap-2">
-                                {/* NÚT TẢI FILE .JSX TRỰC TIẾP VỀ MÁY */}
+                                {/* NÚT TẢI FILE src/App.jsx TRỰC TIẾP VỀ MÁY */}
                                 <button
                                     onClick={handleDownloadFile}
                                     disabled={isGeneratingBase64 || !activeCode}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-400 to-indigo-500 hover:opacity-95 text-slate-950 font-bold text-xs transition active:scale-95 disabled:opacity-50 shadow-md shadow-cyan-500/20"
-                                    title="Tải trực tiếp file .jsx về máy tính chỉ trong 0.1s"
+                                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-400 to-indigo-500 hover:opacity-95 text-slate-950 font-bold text-xs transition active:scale-95 disabled:opacity-50 shadow-md shadow-cyan-500/20"
+                                    title="Tải trực tiếp file App.jsx để đặt vào thư mục src/App.jsx"
                                 >
                                     <Download className="w-3.5 h-3.5" />
-                                    <span>Tải File .jsx</span>
+                                    <span>Tải src/App.jsx</span>
                                 </button>
 
                                 {/* Nút Copy code */}

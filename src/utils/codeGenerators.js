@@ -18,7 +18,7 @@ const TOTAL_FRAMES = ${frameCount};
 // Dữ liệu nội dung hiển thị theo tiến trình Scroll (0.0 -> 1.0)
 const STORY_NODES = ${JSON.stringify(storyNodes, null, 2)};
 
-export default function SmoothScrollVideo() {
+export default function App() {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const imagesRef = useRef([]);
@@ -228,7 +228,7 @@ const TOTAL_FRAMES = ${frameCount};
 // Dữ liệu nội dung hiển thị theo tiến trình Scroll (0.0 -> 1.0)
 const STORY_NODES = ${JSON.stringify(storyNodes, null, 2)};
 
-export default function SmoothScrollVideo() {
+export default function App() {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const imagesRef = useRef([]);
@@ -516,7 +516,7 @@ const EMBEDDED_FRAMES = ${JSON.stringify(base64List, null, 2)};
 
 const TOTAL_FRAMES = EMBEDDED_FRAMES.length;
 
-export default function SingleFileScrollVideo() {
+export default function App() {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const imagesRef = useRef([]);
@@ -725,7 +725,7 @@ const EMBEDDED_FRAMES = ${JSON.stringify(base64List, null, 2)};
 
 const TOTAL_FRAMES = EMBEDDED_FRAMES.length;
 
-export default function SingleFileScrollVideo() {
+export default function App() {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const imagesRef = useRef([]);

@@ -25,6 +25,7 @@ export default function ScrollViewport({
     videoMetrics,
     screenMetrics,
     renderFitMode,
+    currentRamEstimate,
 }) {
     return (
         <main ref={containerRef} className="relative w-full h-[550vh]">
@@ -48,12 +49,13 @@ export default function ScrollViewport({
                     />
                 </div>
 
-                {/* Processing RAM Frame Modal kèm nút Hủy */}
+                {/* Processing RAM Frame Modal kèm nút Hủy & thông số RAM */}
                 {isProcessing && (
                     <ProcessingOverlay
                         framesCount={framesCount}
                         processProgress={processProgress}
                         onCancel={onCancelProcessing}
+                        currentRamEstimate={currentRamEstimate}
                     />
                 )}
 
@@ -76,6 +78,7 @@ export default function ScrollViewport({
                     videoMetrics={videoMetrics}
                     screenMetrics={screenMetrics}
                     renderFitMode={renderFitMode}
+                    currentRamEstimate={currentRamEstimate}
                 />
 
                 {/* Scroll Hint */}

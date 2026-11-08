@@ -14,6 +14,7 @@ export default function PerformanceHUD({
     videoMetrics,
     screenMetrics,
     renderFitMode,
+    currentRamEstimate,
 }) {
     // Tự động thu gọn trên màn hình nhỏ để tránh che khuất video
     const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -44,6 +45,10 @@ export default function PerformanceHUD({
                 >
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                     <span className="text-emerald-400 font-bold">{fps} FPS</span>
+                    <span className="text-slate-600">|</span>
+                    <span className={`font-bold ${currentRamEstimate?.colorClass || 'text-cyan-400'}`}>
+                        ~{currentRamEstimate?.mb || 400}MB
+                    </span>
                     <span className="text-slate-600">|</span>
                     <span className="text-cyan-400 font-bold">{Math.round(scrollProgress * 100)}%</span>
                     <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
@@ -90,6 +95,14 @@ export default function PerformanceHUD({
                                     <span className="text-slate-400">Frame RAM</span>
                                     <span className="text-white font-bold">
                                         {(scrollProgress * (cachedBitmapsCount - 1)).toFixed(1)} / {cachedBitmapsCount}
+                                    </span>
+                                </div>
+
+                                {/* RAM Footprint & Safety */}
+                                <div className="flex justify-between items-center">
+                                    <span className="text-slate-400">Dung lượng RAM</span>
+                                    <span className={`font-bold ${currentRamEstimate?.colorClass || 'text-emerald-400'}`}>
+                                        ~{currentRamEstimate?.mb || 400} MB
                                     </span>
                                 </div>
 

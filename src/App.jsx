@@ -14,7 +14,7 @@ import ExportCodeModal from './components/modals/ExportCodeModal';
 import ExportZipModal from './components/modals/ExportZipModal';
 
 // Utils & Data
-import { downloadFramesAsZip } from './utils/zipExporter';
+import { downloadProjectZip, downloadFramesAsZip } from './utils/zipExporter';
 import { generateFolderModeCode, generateEmbeddedModeCode } from './utils/codeGenerators';
 import defaultStoryNodes from './data/defaultStoryNodes';
 
@@ -55,7 +55,7 @@ export default function App() {
     const cancelZipRef = useRef(false);
     const cancelBase64Ref = useRef(false);
 
-    // Custom Hooks - Tích hợp Auto-Detect Ratio, Responsive & Nút HỦY trích xuất source
+    // Custom Hooks - Tích hợp Auto-Detect Ratio, Responsive, RAM Guard & Nút HỦY nạp source
     const {
         isProcessing,
         processProgress,
@@ -67,6 +67,9 @@ export default function App() {
         aspectComparison,
         renderFitMode,
         setRenderFitMode,
+        ramProfile,
+        setRamProfile,
+        currentRamEstimate,
         canvasRef,
         videoRef,
         renderFrameWithBlending,
@@ -83,11 +86,19 @@ export default function App() {
         smoothProgressRef,
     } = useScrollMotion({ renderFrameWithBlending, enableMotionBlur });
 
+    // Thay đổi Profile tối ưu hóa RAM (Eco / Balanced / High) và nạp lại frame
+    const handleRamProfileChange = (newProfile) => {
+        setRamProfile(newProfile);
+        if (videoRef.current) {
+            extractFrames(videoRef.current, framesCount, newProfile);
+        }
+    };
+
     // Load Metadata của Video
     const handleLoadedMetadata = () => {
         if (!videoRef.current) return;
         setVideoDuration(videoRef.current.duration);
-        extractFrames(videoRef.current, framesCount);
+        extractFrames(videoRef.current, framesCount, ramProfile);
     };
 
     // Xử lý nạp file video từ máy
@@ -113,21 +124,25 @@ export default function App() {
         setZipProgress(0);
     };
 
-    // Đóng gói và tải trọn bộ frames dạng ZIP
-    const handleDownloadZip = async () => {
+    // Đóng gói và tải trọn bộ frames dạng ZIP hoặc Full Project
+    const handleDownloadZip = async (exportMode = 'full-project', zipFramework = stylingFramework) => {
         if (cachedBitmaps.length === 0) return;
         setIsZipping(true);
         setZipProgress(0);
         cancelZipRef.current = false;
 
         try {
-            await downloadFramesAsZip(
+            await downloadProjectZip({
                 cachedBitmaps,
                 exportQuality,
                 videoName,
-                setZipProgress,
-                () => cancelZipRef.current
-            );
+                storyNodes,
+                stylingFramework: zipFramework,
+                exportMode,
+                codeExportMode,
+                onProgress: setZipProgress,
+                checkCancelled: () => cancelZipRef.current
+            });
         } catch (err) {
             console.error("Lỗi đóng gói ZIP:", err);
         } finally {
@@ -242,6 +257,9 @@ export default function App() {
                 aspectComparison={aspectComparison}
                 renderFitMode={renderFitMode}
                 setRenderFitMode={setRenderFitMode}
+                ramProfile={ramProfile}
+                onRamProfileChange={handleRamProfileChange}
+                currentRamEstimate={currentRamEstimate}
             />
 
             {/* Main Sticky Scroll Section - Tự động đồng bộ DPR & Nút HỦY nạp source */}
@@ -262,6 +280,7 @@ export default function App() {
                 videoMetrics={videoMetrics}
                 screenMetrics={screenMetrics}
                 renderFitMode={renderFitMode}
+                currentRamEstimate={currentRamEstimate}
             />
 
             {/* Modal Quản lý & Chèn Content theo Scroll */}
@@ -278,7 +297,7 @@ export default function App() {
                 />
             )}
 
-            {/* Modal Xuất Code React - Hỗ trợ THUẦN CSS & Tải file .jsx */}
+            {/* Modal Xuất Code React - Hỗ trợ THUẦN CSS & Tải file App.jsx */}
             {activeModal === 'export-code' && (
                 <ExportCodeModal
                     codeExportMode={codeExportMode}
@@ -296,6 +315,8 @@ export default function App() {
                     cachedBitmapsCount={cachedBitmaps.length}
                     onGenerateEmbeddedCode={(preset, framework) => generateEmbeddedCode(preset, framework || stylingFramework)}
                     onCancelBase64={handleCancelBase64}
+                    onOpenExportZip={() => setActiveModal('export-zip')}
+                    onDownloadProjectZip={(framework) => handleDownloadZip('full-project', framework || stylingFramework)}
                     onClose={() => setActiveModal(null)}
                 />
             )}

@@ -40,6 +40,10 @@ export default function Header({
     aspectComparison,
     renderFitMode = 'adaptive',
     setRenderFitMode,
+    // RAM Optimization props
+    ramProfile = 'balanced',
+    onRamProfileChange,
+    currentRamEstimate,
 }) {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -185,7 +189,23 @@ export default function Header({
                                 <span>Blend</span>
                             </button>
 
-                            {/* Frame Density Selector */}
+                            {/* RAM Profile Selector (Eco / Balanced / High) */}
+                            <div className="flex items-center gap-1.5 bg-slate-800/90 border border-slate-700 rounded-xl px-2.5 py-1 text-xs">
+                                <Zap className="w-3.5 h-3.5 text-amber-400" />
+                                <select
+                                    value={ramProfile}
+                                    onChange={(e) => onRamProfileChange && onRamProfileChange(e.target.value)}
+                                    disabled={isProcessing}
+                                    className="bg-transparent text-amber-300 font-bold outline-none cursor-pointer text-xs"
+                                    title="Chế độ tối ưu hóa RAM: Tiết kiệm RAM 50% chống tràn, Cân bằng chuẩn nét, hoặc Cao"
+                                >
+                                    <option value="eco" className="bg-slate-900">⚡ Tiết kiệm RAM (960p)</option>
+                                    <option value="balanced" className="bg-slate-900">🎯 Cân bằng (1152p)</option>
+                                    <option value="high" className="bg-slate-900">💎 Độ nét cao (1280p)</option>
+                                </select>
+                            </div>
+
+                            {/* Frame Density Selector kèm ước tính RAM */}
                             <div className="flex items-center gap-1.5 bg-slate-800/90 border border-slate-700 rounded-xl px-2.5 py-1 text-xs">
                                 <Layers className="w-3.5 h-3.5 text-cyan-400" />
                                 <select
@@ -193,15 +213,15 @@ export default function Header({
                                     onChange={(e) => {
                                         const count = Number(e.target.value);
                                         setFramesCount(count);
-                                        if (videoRef.current) extractFrames(videoRef.current, count);
+                                        if (videoRef.current) extractFrames(videoRef.current, count, ramProfile);
                                     }}
                                     disabled={isProcessing}
                                     className="bg-transparent text-cyan-300 font-bold outline-none cursor-pointer text-xs"
                                 >
-                                    <option value={200} className="bg-slate-900">200 frames</option>
-                                    <option value={360} className="bg-slate-900">360 frames</option>
-                                    <option value={540} className="bg-slate-900">540 frames</option>
-                                    <option value={680} className="bg-slate-900">680 frames</option>
+                                    <option value={200} className="bg-slate-900">200 frames (~{ramProfile === 'eco' ? '410' : ramProfile === 'high' ? '730' : '470'}MB)</option>
+                                    <option value={360} className="bg-slate-900">360 frames (~{ramProfile === 'eco' ? '740' : ramProfile === 'high' ? '1.3GB' : '850'}MB)</option>
+                                    <option value={540} className="bg-slate-900">540 frames (~{ramProfile === 'eco' ? '1.1GB' : ramProfile === 'high' ? '2.0GB' : '1.3GB'})</option>
+                                    <option value={680} className="bg-slate-900">680 frames (~{ramProfile === 'eco' ? '1.4GB' : ramProfile === 'high' ? '2.5GB' : '1.6GB'})</option>
                                 </select>
                             </div>
 
@@ -307,6 +327,34 @@ export default function Header({
                             </div>
                         </div>
 
+                        {/* RAM Profile in Mobile Drawer */}
+                        <div>
+                            <span className="text-slate-400 block mb-1.5 flex items-center gap-1">
+                                <Zap className="w-3.5 h-3.5 text-amber-400" />
+                                Tối ưu RAM (Chống tràn & sập nguồn):
+                            </span>
+                            <div className="grid grid-cols-3 gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800 text-[11px]">
+                                <button
+                                    onClick={() => onRamProfileChange && onRamProfileChange('eco')}
+                                    className={`py-1.5 rounded-lg font-semibold text-center transition ${ramProfile === 'eco' ? 'bg-amber-400 text-slate-950 font-bold' : 'text-slate-400'}`}
+                                >
+                                    ⚡ Tiết kiệm
+                                </button>
+                                <button
+                                    onClick={() => onRamProfileChange && onRamProfileChange('balanced')}
+                                    className={`py-1.5 rounded-lg font-semibold text-center transition ${ramProfile === 'balanced' ? 'bg-cyan-500 text-slate-950 font-bold' : 'text-slate-400'}`}
+                                >
+                                    🎯 Cân bằng
+                                </button>
+                                <button
+                                    onClick={() => onRamProfileChange && onRamProfileChange('high')}
+                                    className={`py-1.5 rounded-lg font-semibold text-center transition ${ramProfile === 'high' ? 'bg-indigo-500 text-white font-bold' : 'text-slate-400'}`}
+                                >
+                                    💎 Cao
+                                </button>
+                            </div>
+                        </div>
+
                         {/* Quick Controls Grid */}
                         <div className="grid grid-cols-2 gap-2">
                             <button
@@ -327,15 +375,15 @@ export default function Header({
                                     onChange={(e) => {
                                         const count = Number(e.target.value);
                                         setFramesCount(count);
-                                        if (videoRef.current) extractFrames(videoRef.current, count);
+                                        if (videoRef.current) extractFrames(videoRef.current, count, ramProfile);
                                     }}
                                     disabled={isProcessing}
                                     className="bg-transparent text-cyan-300 font-bold outline-none cursor-pointer"
                                 >
-                                    <option value={200} className="bg-slate-900">200 frames</option>
-                                    <option value={360} className="bg-slate-900">360 frames</option>
-                                    <option value={540} className="bg-slate-900">540 frames</option>
-                                    <option value={680} className="bg-slate-900">680 frames</option>
+                                    <option value={200} className="bg-slate-900">200 (~{ramProfile === 'eco' ? '410' : ramProfile === 'high' ? '730' : '470'}MB)</option>
+                                    <option value={360} className="bg-slate-900">360 (~{ramProfile === 'eco' ? '740' : ramProfile === 'high' ? '1.3GB' : '850'}MB)</option>
+                                    <option value={540} className="bg-slate-900">540 (~{ramProfile === 'eco' ? '1.1GB' : ramProfile === 'high' ? '2.0GB' : '1.3GB'})</option>
+                                    <option value={680} className="bg-slate-900">680 (~{ramProfile === 'eco' ? '1.4GB' : ramProfile === 'high' ? '2.5GB' : '1.6GB'})</option>
                                 </select>
                             </div>
                         </div>
