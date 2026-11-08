@@ -16,15 +16,16 @@ export default function ExportZipModal({
     onCancelZip,
     onClose,
     videoMetrics,
-    enableFrameBlend = true
+    enableFrameBlend = false
 }) {
     const [exportProjectMode, setExportProjectMode] = useState('full-project'); // 'full-project' | 'frames-only'
     const [zipFramework, setZipFramework] = useState('pure-css'); // 'pure-css' | 'tailwind'
     const [exportResolution, setExportResolution] = useState('original'); // 'original' | '1080p' | 'cached'
-    const [zipBlend, setZipBlend] = useState(enableFrameBlend);
+    const [exportFormat, setExportFormat] = useState('webp'); // 'webp' | 'png' | 'jpg'
+    const [zipBlend, setZipBlend] = useState(false); // Mặc định tắt blend để hiển thị sắc nét 100% như video gốc
 
     const handleStartDownload = () => {
-        onDownloadZip(exportProjectMode, zipFramework, exportResolution, exportQuality, zipBlend);
+        onDownloadZip(exportProjectMode, zipFramework, exportResolution, exportQuality, zipBlend, exportFormat);
     };
 
     return (
@@ -201,12 +202,85 @@ export default function ExportZipModal({
                         </div>
                     )}
 
-                    {/* Frame Blending Toggle */}
+                    {/* ĐỊNH DẠNG HÌNH ẢNH XUẤT: WEBP VS PNG (LOSSLESS 100%) VS JPG */}
+                    <div className="p-3.5 bg-slate-950/80 rounded-2xl border border-slate-800 space-y-2">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                                <Palette className="w-3.5 h-3.5 text-cyan-400" />
+                                Định dạng ảnh khung hình:
+                            </span>
+                            <span className="text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono font-bold">
+                                {exportFormat === 'png' ? '💎 PNG: 100% Lossless (Giống tuyệt đối Video gốc)' : exportFormat === 'jpg' ? '📸 JPG 98%' : '🌟 WebP 98% (Sắc nét cao)'}
+                            </span>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setExportFormat('webp')}
+                                className={`p-2.5 rounded-xl border text-left transition ${
+                                    exportFormat === 'webp'
+                                        ? 'bg-cyan-500/15 border-cyan-500 text-white shadow-md shadow-cyan-500/15'
+                                        : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-white'
+                                }`}
+                            >
+                                <div className="font-bold text-xs text-cyan-300 flex items-center justify-between">
+                                    <span>🌟 WebP (98%)</span>
+                                    {exportFormat === 'webp' && <Check className="w-3 h-3 text-cyan-400" />}
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-0.5">
+                                    Rất nét + Nhẹ cho Web
+                                </p>
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => setExportFormat('png')}
+                                className={`p-2.5 rounded-xl border text-left transition ${
+                                    exportFormat === 'png'
+                                        ? 'bg-emerald-500/15 border-emerald-500 text-white shadow-md shadow-emerald-500/15'
+                                        : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-white'
+                                }`}
+                            >
+                                <div className="font-bold text-xs text-emerald-300 flex items-center justify-between">
+                                    <span>💎 PNG Lossless</span>
+                                    {exportFormat === 'png' && <Check className="w-3 h-3 text-emerald-400" />}
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-0.5">
+                                    100% Giống hệt video gốc
+                                </p>
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => setExportFormat('jpg')}
+                                className={`p-2.5 rounded-xl border text-left transition ${
+                                    exportFormat === 'jpg'
+                                        ? 'bg-amber-500/15 border-amber-500 text-white shadow-md shadow-amber-500/15'
+                                        : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-white'
+                                }`}
+                            >
+                                <div className="font-bold text-xs text-amber-300 flex items-center justify-between">
+                                    <span>📸 JPG (98%)</span>
+                                    {exportFormat === 'jpg' && <Check className="w-3 h-3 text-amber-400" />}
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-0.5">
+                                    Tương thích cao
+                                </p>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Chế độ hiển thị: Sắc nét 100% vs Làm mượt */}
                     <div className="flex items-center justify-between p-3 bg-slate-950/80 rounded-xl border border-slate-800">
                         <div className="space-y-0.5 pr-2">
-                            <span className="text-xs font-semibold text-slate-200 block">Sub-frame Blending trong code xuất:</span>
+                            <span className="text-xs font-semibold text-slate-200 block">
+                                Chế độ hiển thị khung hình trong code:
+                            </span>
                             <span className="text-[11px] text-slate-400 block">
-                                {zipBlend ? 'Hòa trộn mượt mà (Chuyển động liên tục như phim)' : 'Tắt hòa trộn (Sắc nét 100%, không bóng mờ khi dừng cuộn)'}
+                                {zipBlend
+                                    ? '✨ Đang bật Hòa Trộn Mờ (Sub-frame Blend - Chuyển động liên tục)'
+                                    : '🎯 Sắc Nét 100% Chuẩn Video (Từng frame trong veo, không bóng mờ khi dừng - KHUYÊN DÙNG)'}
                             </span>
                         </div>
                         <button
@@ -215,37 +289,44 @@ export default function ExportZipModal({
                             className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition shrink-0 ${
                                 zipBlend
                                     ? 'bg-cyan-500/20 border-cyan-500 text-cyan-300 shadow-[0_0_10px_rgba(56,189,248,0.2)]'
-                                    : 'bg-slate-800 border-slate-700 text-slate-400'
+                                    : 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.2)]'
                             }`}
                         >
-                            {zipBlend ? 'BẬT' : 'TẮT'}
+                            {zipBlend ? 'Hòa Trộn Mờ' : 'Sắc Nét Gốc 100%'}
                         </button>
                     </div>
 
-                    {/* Chất lượng ảnh nén WebP */}
-                    <div className="space-y-1.5 p-3 bg-slate-950/80 rounded-xl border border-slate-800">
-                        <div className="flex justify-between items-center text-xs">
-                            <span className="text-slate-300 font-medium">Chất lượng ảnh nén (WebP Quality):</span>
-                            <span className="text-cyan-400 font-mono font-bold bg-cyan-950/80 border border-cyan-800/60 px-2 py-0.5 rounded-lg">
-                                {Math.round(exportQuality * 100)}% {exportQuality >= 0.90 ? '🔥 Cực kỳ sắc nét' : '⚡ Tiêu chuẩn'}
-                            </span>
+                    {/* Chất lượng ảnh nén (Nếu không phải PNG) */}
+                    {exportFormat === 'png' ? (
+                        <div className="p-3 bg-emerald-950/40 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 flex items-center gap-2">
+                            <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                            <span>Định dạng PNG là Lossless 100% (Không nén suy hao) — Từng pixel, viền chi tiết và màu sắc bảo toàn 100% như video gốc bạn tải lên!</span>
                         </div>
-                        <input
-                            type="range"
-                            min="0.75"
-                            max="1"
-                            step="0.05"
-                            value={exportQuality}
-                            onChange={(e) => setExportQuality(parseFloat(e.target.value))}
-                            disabled={isZipping}
-                            className="w-full accent-cyan-400 cursor-pointer"
-                        />
-                        <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                            <span>75% (Nhẹ)</span>
-                            <span className="text-cyan-400 font-bold">95% (Khuyên dùng - Không mờ)</span>
-                            <span>100% (Lossless)</span>
+                    ) : (
+                        <div className="space-y-1.5 p-3 bg-slate-950/80 rounded-xl border border-slate-800">
+                            <div className="flex justify-between items-center text-xs">
+                                <span className="text-slate-300 font-medium">Chất lượng ảnh nén ({exportFormat.toUpperCase()} Quality):</span>
+                                <span className="text-cyan-400 font-mono font-bold bg-cyan-950/80 border border-cyan-800/60 px-2 py-0.5 rounded-lg">
+                                    {Math.round(exportQuality * 100)}% {exportQuality >= 0.95 ? '🔥 Siêu nét cực đại' : '⚡ Chuẩn nét'}
+                                </span>
+                            </div>
+                            <input
+                                type="range"
+                                min="0.80"
+                                max="1"
+                                step="0.02"
+                                value={exportQuality}
+                                onChange={(e) => setExportQuality(parseFloat(e.target.value))}
+                                disabled={isZipping}
+                                className="w-full accent-cyan-400 cursor-pointer"
+                            />
+                            <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                                <span>80%</span>
+                                <span className="text-cyan-400 font-bold">98% (Chuẩn Studio)</span>
+                                <span>100% (Cao nhất)</span>
+                            </div>
                         </div>
-                    </div>
+                    )}
 
                     {/* Loading State or Instruction Note */}
                     {isZipping ? (

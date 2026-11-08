@@ -20,9 +20,10 @@ import { generateFolderModeCode, generateEmbeddedModeCode } from './codeGenerato
 export const downloadProjectZip = async ({
     cachedBitmaps,
     videoElement = null,
-    exportQuality = 0.95,
+    exportQuality = 0.98,
     exportResolution = 'original', // 'original' | '1080p' | 'cached'
-    enableFrameBlend = true,
+    exportFormat = 'webp', // 'webp' | 'png' | 'jpg'
+    enableFrameBlend = false, // Mặc định tắt blend để hiển thị sắc nét 100% giống video gốc
     videoName = 'smooth-video',
     storyNodes = [],
     stylingFramework = 'pure-css',
@@ -41,7 +42,11 @@ export const downloadProjectZip = async ({
     let frameWidth = cachedBitmaps[0]?.width || 1280;
     let frameHeight = cachedBitmaps[0]?.height || 720;
 
-    // 1. Xử lý ảnh Frames WebP đa luồng
+    const ext = exportFormat === 'png' ? 'png' : exportFormat === 'jpg' ? 'jpg' : 'webp';
+    const mimeType = exportFormat === 'png' ? 'image/png' : exportFormat === 'jpg' ? 'image/jpeg' : 'image/webp';
+    const quality = exportFormat === 'png' ? undefined : (exportQuality || 0.98);
+
+    // 1. Xử lý ảnh Frames WebP/PNG/JPG đa luồng
     if (codeExportMode === 'folder' || exportMode === 'frames-only') {
         const folder = exportMode === 'full-project' ? zip.folder('public/frames') : zip.folder('frames');
 
@@ -77,35 +82,65 @@ export const downloadProjectZip = async ({
                 ctx.imageSmoothingEnabled = true;
                 ctx.imageSmoothingQuality = 'high';
 
-                for (let i = 0; i < total; i++) {
-                    if (checkCancelled && checkCancelled()) return false;
-                    const seekTime = Math.min(i * step, duration - 0.01);
+                // Hàm seek video an toàn tuyệt đối, chống timeout / treo tiến trình
+                const seekVideo = (video, time) => {
+                    return new Promise((resolve) => {
+                        if (Math.abs(video.currentTime - time) < 0.002) {
+                            resolve();
+                            return;
+                        }
 
-                    await new Promise((resolve) => {
-                        const handleSeeked = async () => {
-                            videoElement.removeEventListener('seeked', handleSeeked);
-                            if (checkCancelled && checkCancelled()) {
-                                resolve();
-                                return;
-                            }
-
-                            ctx.drawImage(videoElement, 0, 0, targetW, targetH);
-                            const blob = await new Promise((resBlob) => {
-                                canvas.toBlob(resBlob, 'image/webp', exportQuality);
-                            });
-
-                            const fileName = `frame_${String(i).padStart(4, '0')}.webp`;
-                            folder.file(fileName, blob);
-
-                            onProgress(Math.round(((i + 1) / total) * (exportMode === 'full-project' ? 80 : 90)));
+                        let timer;
+                        const onSeeked = () => {
+                            clearTimeout(timer);
+                            video.removeEventListener('seeked', onSeeked);
                             resolve();
                         };
 
-                        videoElement.addEventListener('seeked', handleSeeked, { once: true });
-                        videoElement.currentTime = seekTime;
+                        timer = setTimeout(() => {
+                            video.removeEventListener('seeked', onSeeked);
+                            resolve();
+                        }, 1200);
+
+                        video.addEventListener('seeked', onSeeked, { once: true });
+                        video.currentTime = time;
+                    });
+                };
+
+                for (let i = 0; i < total; i++) {
+                    if (checkCancelled && checkCancelled()) return false;
+                    const seekTime = Math.min(i * step, duration - 0.01);
+                    await seekVideo(videoElement, seekTime);
+
+                    if (checkCancelled && checkCancelled()) return false;
+
+                    // LẤY TRỰC TIẾP FRAME TỪ HARDWARE DECODER CỦA TRÌNH DUYỆT (GIỐNG 100% GỐC)
+                    try {
+                        const bmp = await createImageBitmap(videoElement, {
+                            resizeWidth: targetW === vw ? undefined : targetW,
+                            resizeHeight: targetH === vh ? undefined : targetH,
+                            resizeQuality: 'high',
+                            premultiplyAlpha: 'none',
+                            colorSpaceConversion: 'none'
+                        });
+                        ctx.drawImage(bmp, 0, 0, targetW, targetH);
+                        bmp.close();
+                    } catch {
+                        // Fallback nếu createImageBitmap không khả dụng
+                        ctx.drawImage(videoElement, 0, 0, targetW, targetH);
+                    }
+
+                    const blob = await new Promise((resBlob) => {
+                        canvas.toBlob(resBlob, mimeType, quality);
                     });
 
-                    if (i > 0 && i % 8 === 0) {
+                    const fileName = `frame_${String(i).padStart(4, '0')}.${ext}`;
+                    folder.file(fileName, blob);
+
+                    onProgress(Math.round(((i + 1) / total) * (exportMode === 'full-project' ? 80 : 90)));
+
+                    // Nhường luồng cho UI mượt mà
+                    if (i > 0 && i % 6 === 0) {
                         await new Promise((r) => setTimeout(r, 0));
                     }
                 }
@@ -133,12 +168,12 @@ export const downloadProjectZip = async ({
                 ctx.drawImage(item, 0, 0);
 
                 const blob = await new Promise((resolve) => {
-                    canvas.toBlob(resolve, 'image/webp', exportQuality);
+                    canvas.toBlob(resolve, mimeType, quality);
                 });
 
                 if (checkCancelled && checkCancelled()) return false;
 
-                const fileName = `frame_${String(index).padStart(4, '0')}.webp`;
+                const fileName = `frame_${String(index).padStart(4, '0')}.${ext}`;
                 folder.file(fileName, blob);
 
                 completed++;
@@ -172,8 +207,9 @@ export const downloadProjectZip = async ({
             height: frameHeight,
             fpsTarget: 60,
             originalVideo: videoName,
+            format: ext,
             exportResolution,
-            exportQuality,
+            exportQuality: quality || 1.0,
             blendingSupported: enableFrameBlend
         }, null, 2));
     }
@@ -195,7 +231,7 @@ export const downloadProjectZip = async ({
             );
             if (checkCancelled && checkCancelled()) return false;
         } else {
-            appCode = generateFolderModeCode(total, storyNodes, stylingFramework, enableFrameBlend);
+            appCode = generateFolderModeCode(total, storyNodes, stylingFramework, enableFrameBlend, ext);
         }
 
         // 1. src/App.jsx (Chứa code chính)

@@ -15,7 +15,13 @@ import ExportZipModal from './components/modals/ExportZipModal';
 
 // Utils & Data
 import { downloadProjectZip, downloadFramesAsZip } from './utils/zipExporter';
-import { generateFolderModeCode, generateEmbeddedModeCode } from './utils/codeGenerators';
+import {
+    generateFolderModeCode,
+    generateEmbeddedModeCode,
+    extractBase64FramesList,
+    generateEmbeddedFramesArrayCode
+} from './utils/codeGenerators';
+import { downloadCodeFile } from './utils/helpers';
 import defaultStoryNodes from './data/defaultStoryNodes';
 
 export default function App() {
@@ -23,7 +29,7 @@ export default function App() {
     const [videoSrc, setVideoSrc] = useState('https://assets.mixkit.co/videos/preview/mixkit-clouds-and-blue-sky-2408-large.mp4');
     const [videoName, setVideoName] = useState('paraglide-mountain.mp4');
     const [framesCount, setFramesCount] = useState(200);
-    const [exportQuality, setExportQuality] = useState(0.95);
+    const [exportQuality, setExportQuality] = useState(0.98);
     const [exportWidth, setExportWidth] = useState(1920);
 
     // Motion Settings
@@ -35,6 +41,8 @@ export default function App() {
     // Định dạng Styling: 'pure-css' (Thuần CSS - Zero Dependencies) hoặc 'tailwind'
     const [stylingFramework, setStylingFramework] = useState('pure-css');
     const [embeddedFramesCode, setEmbeddedFramesCode] = useState('');
+    const [embeddedFramesArrayCode, setEmbeddedFramesArrayCode] = useState('');
+    const [base64ListCache, setBase64ListCache] = useState([]);
     const [isGeneratingBase64, setIsGeneratingBase64] = useState(false);
     const [base64Progress, setBase64Progress] = useState(0);
 
@@ -130,7 +138,8 @@ export default function App() {
         zipFramework = stylingFramework,
         exportResolution = 'original',
         customQuality = exportQuality,
-        zipEnableBlend = enableFrameBlend
+        zipEnableBlend = false,
+        exportFormat = 'webp'
     ) => {
         if (cachedBitmaps.length === 0) return;
         setIsZipping(true);
@@ -143,6 +152,7 @@ export default function App() {
                 videoElement: videoRef.current,
                 exportQuality: customQuality,
                 exportResolution,
+                exportFormat,
                 enableFrameBlend: zipEnableBlend,
                 videoName,
                 storyNodes,
@@ -168,185 +178,230 @@ export default function App() {
 
     // Tạo chuỗi mã nguồn chứa mảng Base64 của toàn bộ Frame đa luồng siêu tốc
     const generateEmbeddedCode = useCallback(async (preset = 'fast', framework = stylingFramework) => {
-        if (cachedBitmaps.length === 0) return;
+        if (cachedBitmaps.length === 0) return null;
         setIsGeneratingBase64(true);
         setBase64Progress(0);
         cancelBase64Ref.current = false;
 
         try {
-            const code = await generateEmbeddedModeCode(
+            const list = await extractBase64FramesList(
                 cachedBitmaps,
-                storyNodes,
                 setBase64Progress,
                 () => cancelBase64Ref.current,
-                preset,
-                framework
+                preset
             );
-            if (code) {
-                setEmbeddedFramesCode(code);
+                if (list && list.length > 0) {
+                    setBase64ListCache(list);
+                    const arrCode = generateEmbeddedFramesArrayCode(list);
+                    setEmbeddedFramesArrayCode(arrCode);
+
+                    const code = await generateEmbeddedModeCode(
+                        cachedBitmaps,
+                        storyNodes,
+                        undefined,
+                        () => cancelBase64Ref.current,
+                        preset,
+                        framework,
+                        enableFrameBlend,
+                        list
+                    );
+                    if (code) {
+                        setEmbeddedFramesCode(code);
+                    }
+                    return { code, arrCode };
+                }
+            } finally {
+                setIsGeneratingBase64(false);
             }
-        } finally {
-            setIsGeneratingBase64(false);
-        }
-    }, [cachedBitmaps, storyNodes, stylingFramework]);
+    return null;
+}, [cachedBitmaps, storyNodes, stylingFramework, enableFrameBlend]);
 
-    // Tự động sinh mã nguồn khi mở modal Xuất Code nếu ở chế độ nhúng
-    useEffect(() => {
-        if (activeModal === 'export-code' && codeExportMode === 'embedded' && !embeddedFramesCode) {
-            generateEmbeddedCode('fast', stylingFramework);
-        }
-    }, [activeModal, codeExportMode, embeddedFramesCode, generateEmbeddedCode, stylingFramework]);
+// Sao chép riêng biến mảng EMBEDDED_FRAMES để người dùng dán đè vào code đã tải về
+const handleCopyFramesArray = async (preset = 'fast') => {
+    let text = embeddedFramesArrayCode;
+    if (!text) {
+        const res = await generateEmbeddedCode(preset, stylingFramework);
+        text = res?.arrCode || '';
+    }
+    if (text) {
+        navigator.clipboard.writeText(text);
+        setCopiedTab('embedded-array');
+        setTimeout(() => setCopiedTab(null), 2500);
+    }
+};
 
-    // --- Story Node Management ---
-    const handleAddStoryNode = () => {
-        let nextStart = Math.round(scrollProgress * 20) / 20;
-        if (nextStart >= 0.85) nextStart = 0.5;
-        const nextEnd = Math.min(1.0, Math.round((nextStart + 0.25) * 20) / 20);
+// Tải trực tiếp file frames.js chứa export const EMBEDDED_FRAMES = [...]
+const handleDownloadFramesFile = async (preset = 'fast') => {
+    let text = embeddedFramesArrayCode;
+    if (!text) {
+        const res = await generateEmbeddedCode(preset, stylingFramework);
+        text = res?.arrCode || '';
+    }
+    if (text) {
+        downloadCodeFile(text, 'frames.js');
+    }
+};
 
-        const newNode = {
-            id: Date.now().toString(),
-            startProgress: nextStart,
-            endProgress: nextEnd,
-            position: 'center',
-            tag: `0${storyNodes.length + 1} / NỘI DUNG MỚI`,
-            tagColor: 'cyan',
-            title: 'Tiêu đề mốc mới',
-            description: 'Mô tả nội dung xuất hiện khi người dùng cuộn đến vị trí này.',
-            ctaText: '',
-            contentType: 'standard', // 'standard' | 'custom'
-            customHtml: '',
-            customCss: '',
-        };
-        setStoryNodes(prev => [...prev, newNode]);
-        setEditingNodeId(newNode.id);
-        setEmbeddedFramesCode(''); // Đảm bảo code xuất ra luôn cập nhật mới
+// Tự động sinh mã nguồn khi mở modal Xuất Code nếu ở chế độ nhúng
+useEffect(() => {
+    if (activeModal === 'export-code' && codeExportMode === 'embedded' && !embeddedFramesCode) {
+        generateEmbeddedCode('fast', stylingFramework);
+    }
+}, [activeModal, codeExportMode, embeddedFramesCode, generateEmbeddedCode, stylingFramework]);
+
+// --- Story Node Management ---
+const handleAddStoryNode = () => {
+    let nextStart = Math.round(scrollProgress * 20) / 20;
+    if (nextStart >= 0.85) nextStart = 0.5;
+    const nextEnd = Math.min(1.0, Math.round((nextStart + 0.25) * 20) / 20);
+
+    const newNode = {
+        id: Date.now().toString(),
+        startProgress: nextStart,
+        endProgress: nextEnd,
+        position: 'center',
+        tag: `0${storyNodes.length + 1} / NỘI DUNG MỚI`,
+        tagColor: 'cyan',
+        title: 'Tiêu đề mốc mới',
+        description: 'Mô tả nội dung xuất hiện khi người dùng cuộn đến vị trí này.',
+        ctaText: '',
+        contentType: 'standard', // 'standard' | 'custom'
+        customHtml: '',
+        customCss: '',
     };
+    setStoryNodes(prev => [...prev, newNode]);
+    setEditingNodeId(newNode.id);
+    setEmbeddedFramesCode(''); // Đảm bảo code xuất ra luôn cập nhật mới
+};
 
-    const handleDeleteNode = (id) => {
-        setStoryNodes(prev => prev.filter(n => n.id !== id));
-        setEmbeddedFramesCode('');
-    };
+const handleDeleteNode = (id) => {
+    setStoryNodes(prev => prev.filter(n => n.id !== id));
+    setEmbeddedFramesCode('');
+};
 
-    const handleUpdateNode = (id, field, value) => {
-        setStoryNodes(prev => prev.map(n => n.id === id ? { ...n, [field]: value } : n));
-        setEmbeddedFramesCode('');
-    };
+const handleUpdateNode = (id, field, value) => {
+    setStoryNodes(prev => prev.map(n => n.id === id ? { ...n, [field]: value } : n));
+    setEmbeddedFramesCode('');
+};
 
-    return (
-        <div className="min-h-screen bg-[#05070c] text-slate-100 font-sans selection:bg-cyan-500 selection:text-black">
+return (
+    <div className="min-h-screen bg-[#05070c] text-slate-100 font-sans selection:bg-cyan-500 selection:text-black">
 
-            {/* Video ẩn dùng làm nền decoder */}
-            <video
-                ref={videoRef}
-                src={videoSrc}
-                className="hidden"
-                playsInline
-                muted
-                crossOrigin="anonymous"
-                onLoadedMetadata={handleLoadedMetadata}
-            />
+        {/* Video ẩn dùng làm nền decoder */}
+        <video
+            ref={videoRef}
+            src={videoSrc}
+            className="hidden"
+            playsInline
+            muted
+            crossOrigin="anonymous"
+            onLoadedMetadata={handleLoadedMetadata}
+        />
 
-            {/* Floating Header Toolbar */}
-            <Header
-                videoName={videoName}
-                enableFrameBlend={enableFrameBlend}
-                setEnableFrameBlend={setEnableFrameBlend}
-                framesCount={framesCount}
-                setFramesCount={setFramesCount}
-                isProcessing={isProcessing}
-                extractFrames={extractFrames}
-                videoRef={videoRef}
-                storyNodesCount={storyNodes.length}
-                onUploadFile={handleFileUpload}
-                onOpenContentManager={() => setActiveModal('manage-content')}
-                onOpenExportCode={() => setActiveModal('export-code')}
-                onOpenExportZip={() => setActiveModal('export-zip')}
-                videoMetrics={videoMetrics}
-                screenMetrics={screenMetrics}
-                aspectComparison={aspectComparison}
-                renderFitMode={renderFitMode}
-                setRenderFitMode={setRenderFitMode}
-                ramProfile={ramProfile}
-                onRamProfileChange={handleRamProfileChange}
-                currentRamEstimate={currentRamEstimate}
-            />
+        {/* Floating Header Toolbar */}
+        <Header
+            videoName={videoName}
+            enableFrameBlend={enableFrameBlend}
+            setEnableFrameBlend={setEnableFrameBlend}
+            framesCount={framesCount}
+            setFramesCount={setFramesCount}
+            isProcessing={isProcessing}
+            extractFrames={extractFrames}
+            videoRef={videoRef}
+            storyNodesCount={storyNodes.length}
+            onUploadFile={handleFileUpload}
+            onOpenContentManager={() => setActiveModal('manage-content')}
+            onOpenExportCode={() => setActiveModal('export-code')}
+            onOpenExportZip={() => setActiveModal('export-zip')}
+            videoMetrics={videoMetrics}
+            screenMetrics={screenMetrics}
+            aspectComparison={aspectComparison}
+            renderFitMode={renderFitMode}
+            setRenderFitMode={setRenderFitMode}
+            ramProfile={ramProfile}
+            onRamProfileChange={handleRamProfileChange}
+            currentRamEstimate={currentRamEstimate}
+        />
 
-            {/* Main Sticky Scroll Section - Tự động đồng bộ DPR & Nút HỦY nạp source */}
-            <ScrollViewport
-                containerRef={containerRef}
-                viewportRef={viewportRef}
-                canvasRef={canvasRef}
-                isProcessing={isProcessing}
-                framesCount={framesCount}
-                processProgress={processProgress}
-                onCancelProcessing={cancelExtraction}
+        {/* Main Sticky Scroll Section - Tự động đồng bộ DPR & Nút HỦY nạp source */}
+        <ScrollViewport
+            containerRef={containerRef}
+            viewportRef={viewportRef}
+            canvasRef={canvasRef}
+            isProcessing={isProcessing}
+            framesCount={framesCount}
+            processProgress={processProgress}
+            onCancelProcessing={cancelExtraction}
+            storyNodes={storyNodes}
+            scrollProgress={scrollProgress}
+            cachedBitmapsCount={cachedBitmaps.length}
+            fps={fps}
+            motionVelocity={motionVelocity}
+            enableFrameBlend={enableFrameBlend}
+            videoMetrics={videoMetrics}
+            screenMetrics={screenMetrics}
+            renderFitMode={renderFitMode}
+            currentRamEstimate={currentRamEstimate}
+        />
+
+        {/* Modal Quản lý & Chèn Content theo Scroll */}
+        {activeModal === 'manage-content' && (
+            <ContentManagerModal
                 storyNodes={storyNodes}
                 scrollProgress={scrollProgress}
-                cachedBitmapsCount={cachedBitmaps.length}
-                fps={fps}
-                motionVelocity={motionVelocity}
-                enableFrameBlend={enableFrameBlend}
-                videoMetrics={videoMetrics}
-                screenMetrics={screenMetrics}
-                renderFitMode={renderFitMode}
-                currentRamEstimate={currentRamEstimate}
+                editingNodeId={editingNodeId}
+                setEditingNodeId={setEditingNodeId}
+                onAddNode={handleAddStoryNode}
+                onDeleteNode={handleDeleteNode}
+                onUpdateNode={handleUpdateNode}
+                onClose={() => setActiveModal(null)}
             />
+        )}
 
-            {/* Modal Quản lý & Chèn Content theo Scroll */}
-            {activeModal === 'manage-content' && (
-                <ContentManagerModal
-                    storyNodes={storyNodes}
-                    scrollProgress={scrollProgress}
-                    editingNodeId={editingNodeId}
-                    setEditingNodeId={setEditingNodeId}
-                    onAddNode={handleAddStoryNode}
-                    onDeleteNode={handleDeleteNode}
-                    onUpdateNode={handleUpdateNode}
-                    onClose={() => setActiveModal(null)}
-                />
-            )}
+        {/* Modal Xuất Code React - Hỗ trợ THUẦN CSS & Tải file App.jsx */}
+        {activeModal === 'export-code' && (
+            <ExportCodeModal
+                codeExportMode={codeExportMode}
+                setCodeExportMode={setCodeExportMode}
+                stylingFramework={stylingFramework}
+                setStylingFramework={setStylingFramework}
+                packageManager={packageManager}
+                setPackageManager={setPackageManager}
+                copiedTab={copiedTab}
+                onCopyCode={handleCopyCode}
+                isGeneratingBase64={isGeneratingBase64}
+                base64Progress={base64Progress}
+                embeddedFramesCode={embeddedFramesCode}
+                embeddedFramesArrayCode={embeddedFramesArrayCode}
+                onCopyFramesArray={handleCopyFramesArray}
+                onDownloadFramesFile={handleDownloadFramesFile}
+                storyNodes={storyNodes}
+                cachedBitmapsCount={cachedBitmaps.length}
+                onGenerateEmbeddedCode={(preset, framework) => generateEmbeddedCode(preset, framework || stylingFramework)}
+                onCancelBase64={handleCancelBase64}
+                onOpenExportZip={() => setActiveModal('export-zip')}
+                onDownloadProjectZip={(framework) => handleDownloadZip('full-project', framework || stylingFramework)}
+                onClose={() => setActiveModal(null)}
+                enableFrameBlend={enableFrameBlend}
+            />
+        )}
 
-            {/* Modal Xuất Code React - Hỗ trợ THUẦN CSS & Tải file App.jsx */}
-            {activeModal === 'export-code' && (
-                <ExportCodeModal
-                    codeExportMode={codeExportMode}
-                    setCodeExportMode={setCodeExportMode}
-                    stylingFramework={stylingFramework}
-                    setStylingFramework={setStylingFramework}
-                    packageManager={packageManager}
-                    setPackageManager={setPackageManager}
-                    copiedTab={copiedTab}
-                    onCopyCode={handleCopyCode}
-                    isGeneratingBase64={isGeneratingBase64}
-                    base64Progress={base64Progress}
-                    embeddedFramesCode={embeddedFramesCode}
-                    storyNodes={storyNodes}
-                    cachedBitmapsCount={cachedBitmaps.length}
-                    onGenerateEmbeddedCode={(preset, framework) => generateEmbeddedCode(preset, framework || stylingFramework)}
-                    onCancelBase64={handleCancelBase64}
-                    onOpenExportZip={() => setActiveModal('export-zip')}
-                    onDownloadProjectZip={(framework) => handleDownloadZip('full-project', framework || stylingFramework)}
-                    onClose={() => setActiveModal(null)}
-                    enableFrameBlend={enableFrameBlend}
-                />
-            )}
+        {/* Modal Xuất Trọn Bộ Frames dạng ZIP - Hỗ trợ nút HỦY & Tăng Chất Lượng Siêu Nét */}
+        {activeModal === 'export-zip' && (
+            <ExportZipModal
+                cachedBitmapsCount={cachedBitmaps.length}
+                exportQuality={exportQuality}
+                setExportQuality={setExportQuality}
+                isZipping={isZipping}
+                zipProgress={zipProgress}
+                onDownloadZip={handleDownloadZip}
+                onCancelZip={handleCancelZip}
+                onClose={() => setActiveModal(null)}
+                videoMetrics={videoMetrics}
+                enableFrameBlend={enableFrameBlend}
+            />
+        )}
 
-            {/* Modal Xuất Trọn Bộ Frames dạng ZIP - Hỗ trợ nút HỦY & Tăng Chất Lượng Siêu Nét */}
-            {activeModal === 'export-zip' && (
-                <ExportZipModal
-                    cachedBitmapsCount={cachedBitmaps.length}
-                    exportQuality={exportQuality}
-                    setExportQuality={setExportQuality}
-                    isZipping={isZipping}
-                    zipProgress={zipProgress}
-                    onDownloadZip={handleDownloadZip}
-                    onCancelZip={handleCancelZip}
-                    onClose={() => setActiveModal(null)}
-                    videoMetrics={videoMetrics}
-                    enableFrameBlend={enableFrameBlend}
-                />
-            )}
-
-        </div>
-    );
+    </div>
+);
 }

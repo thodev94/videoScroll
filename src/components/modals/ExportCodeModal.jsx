@@ -9,7 +9,8 @@ import {
     FileArchive,
     Zap,
     Palette,
-    Rocket
+    Rocket,
+    Layers
 } from 'lucide-react';
 import { getInstallCommand, downloadCodeFile } from '../../utils/helpers';
 import { generateFolderModeCode } from '../../utils/codeGenerators';
@@ -19,9 +20,9 @@ import { generateFolderModeCode } from '../../utils/codeGenerators';
  * Hỗ trợ:
  * 1. Tải trực tiếp file src/App.jsx (1-Click)
  * 2. Tải trọn bộ dự án ZIP (Có sẵn src/App.jsx, public/frames/, package.json)
- * 3. Lựa chọn: THUẦN CSS (Zero Dependencies - Không cần Tailwind) vs TAILWIND CSS
- * 4. Chế độ: Nhúng Base64 All-in-One vs Thư mục ảnh rời
- * 5. Chế độ nén Base64 đa luồng siêu tốc
+ * 3. Xuất riêng biến mảng EMBEDDED_FRAMES để copy thay vào source code đã tải về
+ * 4. Lựa chọn: THUẦN CSS (Zero Dependencies - Không cần Tailwind) vs TAILWIND CSS
+ * 5. Chế độ: Nhúng Base64 All-in-One vs Thư mục ảnh rời
  */
 export default function ExportCodeModal({
     codeExportMode,
@@ -35,6 +36,9 @@ export default function ExportCodeModal({
     isGeneratingBase64,
     base64Progress,
     embeddedFramesCode,
+    embeddedFramesArrayCode,
+    onCopyFramesArray,
+    onDownloadFramesFile,
     storyNodes,
     cachedBitmapsCount,
     onGenerateEmbeddedCode,
@@ -45,11 +49,20 @@ export default function ExportCodeModal({
     enableFrameBlend = true,
 }) {
     const [speedPreset, setSpeedPreset] = useState('fast');
+    const [codeViewTab, setCodeViewTab] = useState('app'); // 'app' | 'array'
+
+    // Tự động quay về tab 'app' khi chọn chế độ thư mục
+    React.useEffect(() => {
+        if (codeExportMode === 'folder' && codeViewTab === 'array') {
+            setCodeViewTab('app');
+        }
+    }, [codeExportMode, codeViewTab]);
 
     // Tạo code theo framework styling đã chọn theo thời gian thực
     const folderCode = generateFolderModeCode(cachedBitmapsCount || 200, storyNodes, stylingFramework, enableFrameBlend);
-    const activeCode = codeExportMode === 'embedded' ? embeddedFramesCode : folderCode;
-    const activeFileName = 'App.jsx';
+    const fullAppCode = codeExportMode === 'embedded' ? embeddedFramesCode : folderCode;
+    const activeCode = codeViewTab === 'array' ? (embeddedFramesArrayCode || '// Đang tạo mảng Base64 frames... Vui lòng chờ') : fullAppCode;
+    const activeFileName = codeViewTab === 'array' ? 'frames.js' : 'App.jsx';
 
     const handleDownloadFile = () => {
         if (!activeCode) return;
@@ -145,6 +158,55 @@ export default function ExportCodeModal({
                         </div>
                     </div>
 
+                    {/* HỘP XUẤT RIÊNG MẢNG EMBEDDED_FRAMES (DÙNG ĐỂ COPY THAY BIẾN TRONG CODE ĐÃ TẢI VỀ) */}
+                    <div className="p-4 bg-gradient-to-r from-amber-950/40 via-slate-900 to-indigo-950/40 rounded-2xl border border-amber-500/40 space-y-2 shadow-lg shadow-amber-950/20">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                                <span className="p-2 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0">
+                                    <Layers className="w-5 h-5" />
+                                </span>
+                                <div>
+                                    <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                                        Xuất Biến Mảng <code className="text-amber-300 font-mono">EMBEDDED_FRAMES</code>
+                                        <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full font-bold">1-Click Thay Biến Code</span>
+                                    </h4>
+                                    <p className="text-[11px] text-slate-300 mt-0.5">
+                                        Copy riêng mảng Base64 để dán đè thay thế biến <code className="text-amber-300 font-mono">const EMBEDDED_FRAMES = [...]</code> trong file <code className="text-cyan-300 font-mono">src/App.jsx</code> đã tải về của bạn.
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => onCopyFramesArray && onCopyFramesArray(speedPreset)}
+                                    disabled={isGeneratingBase64}
+                                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:opacity-95 text-slate-950 font-bold text-xs transition active:scale-95 shadow-md shadow-amber-500/25 shrink-0 disabled:opacity-50"
+                                    title="Sao chép toàn bộ mảng EMBEDDED_FRAMES vào Clipboard để dán thay thế"
+                                >
+                                    {copiedTab === 'embedded-array' ? (
+                                        <>
+                                            <Check className="w-4 h-4 text-slate-950" />
+                                            <span>Đã copy mảng!</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Copy className="w-4 h-4" />
+                                            <span>Copy Mảng EMBEDDED_FRAMES</span>
+                                        </>
+                                    )}
+                                </button>
+                                <button
+                                    onClick={() => onDownloadFramesFile && onDownloadFramesFile(speedPreset)}
+                                    disabled={isGeneratingBase64}
+                                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition border border-slate-700 text-xs font-semibold active:scale-95 shrink-0 disabled:opacity-50"
+                                    title="Tải file frames.js chứa export const EMBEDDED_FRAMES = [...]"
+                                >
+                                    <Download className="w-3.5 h-3.5 text-cyan-400" />
+                                    <span>Tải frames.js</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* LỰA CHỌN PHONG CÁCH CSS: THUẦN CSS VS TAILWIND CSS */}
                     <div className="p-3.5 bg-slate-950/80 rounded-2xl border border-indigo-500/30 space-y-2">
                         <div className="flex items-center justify-between">
@@ -165,11 +227,10 @@ export default function ExportCodeModal({
                                         onGenerateEmbeddedCode(speedPreset, 'pure-css');
                                     }
                                 }}
-                                className={`p-2.5 rounded-xl text-left border transition ${
-                                    stylingFramework === 'pure-css'
+                                className={`p-2.5 rounded-xl text-left border transition ${stylingFramework === 'pure-css'
                                         ? 'bg-indigo-600/25 border-indigo-500 text-white shadow-md'
                                         : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
-                                }`}
+                                    }`}
                             >
                                 <div className="flex justify-between items-center mb-1">
                                     <span className="font-bold text-xs text-indigo-300">⚡ Thuần CSS (Pure CSS - Khuyên dùng)</span>
@@ -187,11 +248,10 @@ export default function ExportCodeModal({
                                         onGenerateEmbeddedCode(speedPreset, 'tailwind');
                                     }
                                 }}
-                                className={`p-2.5 rounded-xl text-left border transition ${
-                                    stylingFramework === 'tailwind'
+                                className={`p-2.5 rounded-xl text-left border transition ${stylingFramework === 'tailwind'
                                         ? 'bg-cyan-600/25 border-cyan-500 text-white shadow-md'
                                         : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
-                                }`}
+                                    }`}
                             >
                                 <div className="flex justify-between items-center mb-1">
                                     <span className="font-bold text-xs text-cyan-300">🎨 Tailwind CSS</span>
@@ -201,6 +261,55 @@ export default function ExportCodeModal({
                                     Sử dụng các class tiện ích Tailwind CSS (thích hợp cho các dự án Next.js, Vite đã cấu hình sẵn Tailwind).
                                 </p>
                             </button>
+                        </div>
+                    </div>
+
+                    {/* HỘP XUẤT RIÊNG MẢNG EMBEDDED_FRAMES (DÙNG ĐỂ COPY THAY BIẾN TRONG CODE ĐÃ TẢI VỀ) */}
+                    <div className="p-4 bg-gradient-to-r from-amber-950/40 via-slate-900 to-indigo-950/40 rounded-2xl border border-amber-500/40 space-y-2 shadow-lg shadow-amber-950/20">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                                <span className="p-2 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0">
+                                    <Layers className="w-5 h-5" />
+                                </span>
+                                <div>
+                                    <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                                        Xuất Biến Mảng <code className="text-amber-300 font-mono">EMBEDDED_FRAMES</code>
+                                        <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full font-bold">1-Click Thay Biến Code</span>
+                                    </h4>
+                                    <p className="text-[11px] text-slate-300 mt-0.5">
+                                        Copy riêng mảng Base64 để dán đè thay thế biến <code className="text-amber-300 font-mono">const EMBEDDED_FRAMES = [...]</code> trong file <code className="text-cyan-300 font-mono">src/App.jsx</code> đã tải về của bạn.
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => onCopyFramesArray && onCopyFramesArray(speedPreset)}
+                                    disabled={isGeneratingBase64}
+                                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:opacity-95 text-slate-950 font-bold text-xs transition active:scale-95 shadow-md shadow-amber-500/25 shrink-0 disabled:opacity-50"
+                                    title="Sao chép toàn bộ mảng EMBEDDED_FRAMES vào Clipboard để dán thay thế"
+                                >
+                                    {copiedTab === 'embedded-array' ? (
+                                        <>
+                                            <Check className="w-4 h-4 text-slate-950" />
+                                            <span>Đã copy mảng!</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Copy className="w-4 h-4" />
+                                            <span>Copy Mảng EMBEDDED_FRAMES</span>
+                                        </>
+                                    )}
+                                </button>
+                                <button
+                                    onClick={() => onDownloadFramesFile && onDownloadFramesFile(speedPreset)}
+                                    disabled={isGeneratingBase64}
+                                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition border border-slate-700 text-xs font-semibold active:scale-95 shrink-0 disabled:opacity-50"
+                                    title="Tải file frames.js chứa export const EMBEDDED_FRAMES = [...]"
+                                >
+                                    <Download className="w-3.5 h-3.5 text-cyan-400" />
+                                    <span>Tải frames.js</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -220,11 +329,10 @@ export default function ExportCodeModal({
                                     <button
                                         key={pm}
                                         onClick={() => setPackageManager(pm)}
-                                        className={`px-2 py-0.5 rounded-md uppercase font-bold transition ${
-                                            packageManager === pm
+                                        className={`px-2 py-0.5 rounded-md uppercase font-bold transition ${packageManager === pm
                                                 ? 'bg-cyan-500 text-slate-950 shadow-sm'
                                                 : 'text-slate-400 hover:text-slate-200'
-                                        }`}
+                                            }`}
                                     >
                                         {pm}
                                     </button>
@@ -276,11 +384,10 @@ export default function ExportCodeModal({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <button
                             onClick={() => setCodeExportMode('embedded')}
-                            className={`p-3.5 rounded-2xl text-left transition flex flex-col gap-1.5 border ${
-                                codeExportMode === 'embedded'
+                            className={`p-3.5 rounded-2xl text-left transition flex flex-col gap-1.5 border ${codeExportMode === 'embedded'
                                     ? 'bg-cyan-500/15 border-cyan-500 text-white shadow-lg shadow-cyan-500/10'
                                     : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-white'
-                            }`}
+                                }`}
                         >
                             <div className="flex items-center justify-between">
                                 <span className="font-bold text-xs flex items-center gap-1.5 text-cyan-300">
@@ -296,11 +403,10 @@ export default function ExportCodeModal({
 
                         <button
                             onClick={() => setCodeExportMode('folder')}
-                            className={`p-3.5 rounded-2xl text-left transition flex flex-col gap-1.5 border ${
-                                codeExportMode === 'folder'
+                            className={`p-3.5 rounded-2xl text-left transition flex flex-col gap-1.5 border ${codeExportMode === 'folder'
                                     ? 'bg-indigo-500/15 border-indigo-500 text-white shadow-lg shadow-indigo-500/10'
                                     : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-white'
-                            }`}
+                                }`}
                         >
                             <div className="flex items-center justify-between">
                                 <span className="font-bold text-xs flex items-center gap-1.5 text-indigo-300">
@@ -328,11 +434,10 @@ export default function ExportCodeModal({
                                         setSpeedPreset('fast');
                                         onGenerateEmbeddedCode('fast', stylingFramework);
                                     }}
-                                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
-                                        speedPreset === 'fast'
+                                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${speedPreset === 'fast'
                                             ? 'bg-amber-400 text-slate-950 shadow'
                                             : 'text-slate-400 hover:text-white'
-                                    }`}
+                                        }`}
                                 >
                                     ⚡ Siêu tốc (440p)
                                 </button>
@@ -341,11 +446,10 @@ export default function ExportCodeModal({
                                         setSpeedPreset('balanced');
                                         onGenerateEmbeddedCode('balanced', stylingFramework);
                                     }}
-                                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
-                                        speedPreset === 'balanced'
+                                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${speedPreset === 'balanced'
                                             ? 'bg-cyan-500 text-slate-950 shadow'
                                             : 'text-slate-400 hover:text-white'
-                                    }`}
+                                        }`}
                                 >
                                     🎯 Cân bằng (500p)
                                 </button>
@@ -354,11 +458,10 @@ export default function ExportCodeModal({
                                         setSpeedPreset('high');
                                         onGenerateEmbeddedCode('high', stylingFramework);
                                     }}
-                                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
-                                        speedPreset === 'high'
+                                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${speedPreset === 'high'
                                             ? 'bg-indigo-500 text-white shadow'
                                             : 'text-slate-400 hover:text-white'
-                                    }`}
+                                        }`}
                                 >
                                     💎 Sắc nét (720p)
                                 </button>
@@ -369,86 +472,158 @@ export default function ExportCodeModal({
                     {/* Code Preview & Actions Box */}
                     <div className="relative rounded-2xl overflow-hidden border border-slate-800 bg-[#05070c]">
                         <div className="flex flex-wrap justify-between items-center px-4 py-2.5 bg-slate-950/90 border-b border-slate-800/80 gap-2">
-                            <span className="text-xs font-mono text-slate-400 truncate max-w-xs">
-                                src/{activeFileName} ({stylingFramework === 'pure-css' ? 'Thuần CSS' : 'Tailwind'})
-                            </span>
+                                {/* Tabs Switcher: src/App.jsx vs [ ] Mảng EMBEDDED_FRAMES */}
+                                <div className="flex items-center gap-1.5 bg-slate-900/90 p-1 rounded-xl border border-slate-800">
+                                    <button
+                                        onClick={() => setCodeViewTab('app')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${codeViewTab === 'app'
+                                                ? 'bg-cyan-500 text-slate-950 shadow-sm font-bold'
+                                                : 'text-slate-400 hover:text-white'
+                                            }`}
+                                    >
+                                        <Code2 className="w-3.5 h-3.5" />
+                                        <span>src/App.jsx</span>
+                                        <span className="text-[10px] opacity-75 hidden sm:inline">
+                                            ({stylingFramework === 'pure-css' ? 'Thuần CSS' : 'Tailwind'})
+                                        </span>
+                                    </button>
 
-                            <div className="flex items-center gap-2">
-                                {/* NÚT TẢI FILE src/App.jsx TRỰC TIẾP VỀ MÁY */}
-                                <button
-                                    onClick={handleDownloadFile}
-                                    disabled={isGeneratingBase64 || !activeCode}
-                                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-400 to-indigo-500 hover:opacity-95 text-slate-950 font-bold text-xs transition active:scale-95 disabled:opacity-50 shadow-md shadow-cyan-500/20"
-                                    title="Tải trực tiếp file App.jsx để đặt vào thư mục src/App.jsx"
-                                >
-                                    <Download className="w-3.5 h-3.5" />
-                                    <span>Tải src/App.jsx</span>
-                                </button>
+                                    {codeExportMode === 'embedded' && (
+                                        <button
+                                            onClick={() => {
+                                                setCodeViewTab('array');
+                                                if (!embeddedFramesArrayCode) {
+                                                    onGenerateEmbeddedCode(speedPreset, stylingFramework);
+                                                }
+                                            }}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${codeViewTab === 'array'
+                                                    ? 'bg-amber-400 text-slate-950 shadow-sm font-bold'
+                                                    : 'text-slate-400 hover:text-white'
+                                                }`}
+                                            title="Chỉ hiển thị riêng biến mảng const EMBEDDED_FRAMES = [...]"
+                                        >
+                                            <Layers className="w-3.5 h-3.5" />
+                                            <span>[ ] Mảng EMBEDDED_FRAMES</span>
+                                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono hidden sm:inline">
+                                                frames.js
+                                            </span>
+                                        </button>
+                                    )}
+                                </div>
 
-                                {/* Nút Copy code */}
-                                <button
-                                    onClick={() => onCopyCode(activeCode, 'comp')}
-                                    disabled={isGeneratingBase64 || !activeCode}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition text-xs font-semibold disabled:opacity-50 border border-slate-700 active:scale-95"
-                                >
-                                    {copiedTab === 'comp' ? (
+                                <div className="flex items-center gap-2">
+                                    {codeViewTab === 'array' ? (
                                         <>
-                                            <Check className="w-3.5 h-3.5 text-emerald-400" />
-                                            <span>Đã copy!</span>
+                                            {/* Nút Tải file frames.js */}
+                                            <button
+                                                onClick={() => onDownloadFramesFile && onDownloadFramesFile(speedPreset)}
+                                                disabled={isGeneratingBase64}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition text-xs font-semibold disabled:opacity-50 border border-slate-700 active:scale-95"
+                                                title="Tải file frames.js chứa export const EMBEDDED_FRAMES = [...]"
+                                            >
+                                                <Download className="w-3.5 h-3.5 text-cyan-400" />
+                                                <span>Tải frames.js</span>
+                                            </button>
+
+                                            {/* Nút Copy mảng EMBEDDED_FRAMES */}
+                                            <button
+                                                onClick={() => onCopyFramesArray && onCopyFramesArray(speedPreset)}
+                                                disabled={isGeneratingBase64}
+                                                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:opacity-95 text-slate-950 font-bold text-xs transition active:scale-95 disabled:opacity-50 shadow-md shadow-amber-500/25"
+                                                title="Sao chép toàn bộ mảng EMBEDDED_FRAMES vào Clipboard để dán thay thế"
+                                            >
+                                                {copiedTab === 'embedded-array' ? (
+                                                    <>
+                                                        <Check className="w-3.5 h-3.5 text-slate-950" />
+                                                        <span>Đã copy mảng!</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Copy className="w-3.5 h-3.5" />
+                                                        <span>Copy Mảng EMBEDDED_FRAMES</span>
+                                                    </>
+                                                )}
+                                            </button>
                                         </>
                                     ) : (
                                         <>
-                                            <Copy className="w-3.5 h-3.5" />
-                                            <span>Copy Code</span>
+                                            {/* NÚT TẢI FILE src/App.jsx TRỰC TIẾP VỀ MÁY */}
+                                            <button
+                                                onClick={handleDownloadFile}
+                                                disabled={isGeneratingBase64 || !activeCode}
+                                                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-400 to-indigo-500 hover:opacity-95 text-slate-950 font-bold text-xs transition active:scale-95 disabled:opacity-50 shadow-md shadow-cyan-500/20"
+                                                title="Tải trực tiếp file App.jsx để đặt vào thư mục src/App.jsx"
+                                            >
+                                                <Download className="w-3.5 h-3.5" />
+                                                <span>Tải src/App.jsx</span>
+                                            </button>
+
+                                            {/* Nút Copy code */}
+                                            <button
+                                                onClick={() => onCopyCode(activeCode, 'comp')}
+                                                disabled={isGeneratingBase64 || !activeCode}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition text-xs font-semibold disabled:opacity-50 border border-slate-700 active:scale-95"
+                                            >
+                                                {copiedTab === 'comp' ? (
+                                                    <>
+                                                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                                        <span>Đã copy!</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Copy className="w-3.5 h-3.5" />
+                                                        <span>Copy Code</span>
+                                                    </>
+                                                )}
+                                            </button>
                                         </>
                                     )}
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Loading Base64 State */}
-                        {isGeneratingBase64 ? (
-                            <div className="p-10 flex flex-col items-center justify-center space-y-3">
-                                <div className="w-10 h-10 border-2 border-cyan-500/30 border-t-cyan-400 rounded-full animate-spin" />
-                                <p className="text-xs text-slate-300 font-mono">
-                                    Đang nén đa luồng {cachedBitmapsCount} frames sang Base64 ({base64Progress}%)...
-                                </p>
-                                <div className="w-64 bg-slate-900 h-2 rounded-full overflow-hidden p-0.5 border border-slate-800">
-                                    <div className="h-full bg-gradient-to-r from-amber-400 via-cyan-400 to-indigo-500 rounded-full transition-all duration-75" style={{ width: `${base64Progress}%` }} />
                                 </div>
-                                {onCancelBase64 && (
-                                    <button
-                                        onClick={onCancelBase64}
-                                        className="mt-2 px-3 py-1.5 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-300 font-semibold text-xs transition active:scale-95"
-                                    >
-                                        Hủy tạo Base64
-                                    </button>
-                                )}
                             </div>
-                        ) : (
-                            <pre className="p-4 font-mono text-[11px] sm:text-xs text-slate-300 overflow-x-auto leading-relaxed max-h-[380px]">
-                                {activeCode || '// Đang chuẩn bị mã nguồn...'}
-                            </pre>
-                        )}
+
+                            {/* Loading Base64 State */}
+                            {isGeneratingBase64 ? (
+                                <div className="p-10 flex flex-col items-center justify-center space-y-3">
+                                    <div className="w-10 h-10 border-2 border-cyan-500/30 border-t-cyan-400 rounded-full animate-spin" />
+                                    <p className="text-xs text-slate-300 font-mono">
+                                        Đang nén đa luồng {cachedBitmapsCount} frames sang Base64 ({base64Progress}%)...
+                                    </p>
+                                    <div className="w-64 bg-slate-900 h-2 rounded-full overflow-hidden p-0.5 border border-slate-800">
+                                        <div className="h-full bg-gradient-to-r from-amber-400 via-cyan-400 to-indigo-500 rounded-full transition-all duration-75" style={{ width: `${base64Progress}%` }} />
+                                    </div>
+                                    {onCancelBase64 && (
+                                        <button
+                                            onClick={onCancelBase64}
+                                            className="mt-2 px-3 py-1.5 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-300 font-semibold text-xs transition active:scale-95"
+                                        >
+                                            Hủy tạo Base64
+                                        </button>
+                                    )}
+                                </div>
+                            ) : (
+                                <pre className="p-4 font-mono text-[11px] sm:text-xs text-slate-300 overflow-x-auto leading-relaxed max-h-[380px]">
+                                    {activeCode || '// Đang chuẩn bị mã nguồn...'}
+                                </pre>
+                            )}
+                        </div>
                     </div>
-                </div>
 
-                {/* Footer Modal */}
-                <div className="p-4 bg-slate-950/60 border-t border-slate-800 flex justify-between items-center text-xs">
-                    <span className="text-slate-400 hidden sm:inline">
-                        {stylingFramework === 'pure-css'
-                            ? '✨ Chế độ Thuần CSS: Chạy ngay lập tức trên bất kỳ dự án React nào, không cần cài Tailwind!'
-                            : '💡 Chế độ Tailwind: Yêu cầu dự án đã cài đặt Tailwind CSS.'}
-                    </span>
-                    <button
-                        onClick={onClose}
-                        className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-medium text-xs transition ml-auto"
-                    >
-                        Đóng
-                    </button>
-                </div>
+                    {/* Footer Modal */}
+                    <div className="p-4 bg-slate-950/60 border-t border-slate-800 flex justify-between items-center text-xs">
+                        <span className="text-slate-400 hidden sm:inline">
+                            {stylingFramework === 'pure-css'
+                                ? '✨ Chế độ Thuần CSS: Chạy ngay lập tức trên bất kỳ dự án React nào, không cần cài Tailwind!'
+                                : '💡 Chế độ Tailwind: Yêu cầu dự án đã cài đặt Tailwind CSS.'}
+                        </span>
+                        <button
+                            onClick={onClose}
+                            className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-medium text-xs transition ml-auto"
+                        >
+                            Đóng
+                        </button>
+                    </div>
 
+                </div>
             </div>
-        </div>
-    );
+            );
 }

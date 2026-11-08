@@ -25,10 +25,10 @@ import {
  * @returns {Object}
  */
 export default function useFrameEngine({
-    exportWidth = 1280,
+    exportWidth = 1920,
     enableFrameBlend = true,
     initialFitMode = 'adaptive',
-    initialRamProfile = 'balanced'
+    initialRamProfile = 'high'
 }) {
     const [isProcessing, setIsProcessing] = useState(false);
     const [processProgress, setProcessProgress] = useState(0);

@@ -8,9 +8,9 @@
  * @param {string} [stylingFramework='pure-css'] - 'pure-css' | 'tailwind'
  * @returns {string} Mã nguồn JSX
  */
-export const generateFolderModeCode = (frameCount, storyNodes, stylingFramework = 'pure-css', enableFrameBlend = true) => {
-    if (stylingFramework === 'pure-css') {
-        return `import React, { useEffect, useRef, useState, useCallback } from 'react';
+export const generateFolderModeCode = (frameCount, storyNodes, stylingFramework = 'pure-css', enableFrameBlend = false, fileExtension = 'webp') => {
+  if (stylingFramework === 'pure-css') {
+    return `import React, { useEffect, useRef, useState, useCallback } from 'react';
 
 // Tổng số khung hình nén tải từ public/frames/
 const TOTAL_FRAMES = ${frameCount};
@@ -36,7 +36,7 @@ export default function App() {
     for (let i = 0; i < TOTAL_FRAMES; i++) {
       const img = new Image();
       const num = String(i).padStart(4, '0');
-      img.src = \`/frames/frame_\${num}.webp\`;
+      img.src = \`/frames/frame_\${num}.\${fileExtension}\`;
       img.onload = () => {
         loaded++;
         setLoadedPercent(Math.round((loaded / TOTAL_FRAMES) * 100));
@@ -251,10 +251,10 @@ ${enableFrameBlend ? `        const nextIdx = Math.min(baseIdx + 1, TOTAL_FRAMES
     </div>
   );
 }`;
-    }
+  }
 
-    // Default: Tailwind CSS Mode
-    return `import React, { useEffect, useRef, useState, useCallback } from 'react';
+  // Default: Tailwind CSS Mode
+  return `import React, { useEffect, useRef, useState, useCallback } from 'react';
 
 // Tổng số khung hình nén tải từ public/frames/
 const TOTAL_FRAMES = ${frameCount};
@@ -280,7 +280,7 @@ export default function App() {
     for (let i = 0; i < TOTAL_FRAMES; i++) {
       const img = new Image();
       const num = String(i).padStart(4, '0');
-      img.src = \`/frames/frame_\${num}.webp\`;
+      img.src = \`/frames/frame_\${num}.\${fileExtension}\`;
       img.onload = () => {
         loaded++;
         setLoadedPercent(Math.round((loaded / TOTAL_FRAMES) * 100));
@@ -498,89 +498,127 @@ ${enableFrameBlend ? `        const nextIdx = Math.min(baseIdx + 1, TOTAL_FRAMES
  * @param {string} [stylingFramework='pure-css'] - 'pure-css' | 'tailwind'
  * @returns {Promise<string>} Mã nguồn JSX
  */
-export const generateEmbeddedModeCode = async (
-    cachedBitmaps,
-    storyNodes,
-    onProgress,
-    checkCancelled,
-    speedPreset = 'fast',
-    stylingFramework = 'pure-css',
-    enableFrameBlend = true
+/**
+ * Chuyển đổi mảng ImageBitmap thành mảng chuỗi Base64 Data URL đa luồng siêu tốc
+ */
+export const extractBase64FramesList = async (
+  cachedBitmaps,
+  onProgress,
+  checkCancelled,
+    speedPreset = 'fast'
 ) => {
-    if (cachedBitmaps.length === 0) return '';
+  if (!cachedBitmaps || cachedBitmaps.length === 0) return [];
 
-    // Cấu hình theo preset để tối ưu dung lượng và tốc độ sinh Base64
-    let maxScale = 640;
-    let webpQuality = 0.70;
-    if (speedPreset === 'fast') {
-        maxScale = 540;
-        webpQuality = 0.65;
-    } else if (speedPreset === 'high') {
-        maxScale = 960;
-        webpQuality = 0.82;
-    }
+  // Cấu hình theo preset để tối ưu dung lượng và tốc độ sinh Base64
+  let maxScale = 640;
+  let webpQuality = 0.70;
+  if (speedPreset === 'fast') {
+    maxScale = 540;
+    webpQuality = 0.65;
+  } else if (speedPreset === 'high') {
+    maxScale = 960;
+    webpQuality = 0.82;
+  }
 
-    const firstBm = cachedBitmaps[0];
-    const aspect = (firstBm.height || 720) / (firstBm.width || 1280);
-    const targetW = Math.min(firstBm.width || 1280, maxScale);
-    const targetH = Math.round(targetW * aspect);
+  const firstBm = cachedBitmaps[0];
+  const aspect = (firstBm.height || 720) / (firstBm.width || 1280);
+  const targetW = Math.min(firstBm.width || 1280, maxScale);
+  const targetH = Math.round(targetW * aspect);
 
-    const total = cachedBitmaps.length;
-    const base64List = new Array(total);
-    const concurrency = Math.min(8, Math.max(4, typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency || 4) : 4));
-    let completed = 0;
+  const total = cachedBitmaps.length;
+  const base64List = new Array(total);
+  const concurrency = Math.min(8, Math.max(4, typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency || 4) : 4));
+  let completed = 0;
 
-    const convertItem = async (index, canvas, ctx) => {
-        if (checkCancelled && checkCancelled()) return;
-        const bm = cachedBitmaps[index];
-        canvas.width = targetW;
-        canvas.height = targetH;
-        ctx.clearRect(0, 0, targetW, targetH);
-        ctx.drawImage(bm, 0, 0, targetW, targetH);
+  const convertItem = async (index, canvas, ctx) => {
+    if (checkCancelled && checkCancelled()) return;
+    const bm = cachedBitmaps[index];
+    canvas.width = targetW;
+    canvas.height = targetH;
+    ctx.clearRect(0, 0, targetW, targetH);
+    ctx.drawImage(bm, 0, 0, targetW, targetH);
 
-        const b64 = await new Promise((resolve) => {
-            canvas.toBlob((blob) => {
-                if (!blob) {
-                    resolve(canvas.toDataURL('image/webp', webpQuality));
-                    return;
-                }
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result);
-                reader.readAsDataURL(blob);
-            }, 'image/webp', webpQuality);
-        });
-
-        if (checkCancelled && checkCancelled()) return;
-        base64List[index] = b64;
-        completed++;
-        onProgress(Math.round((completed / total) * 100));
-    };
-
-    const runWorker = async (startIndex) => {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        for (let i = startIndex; i < total; i += concurrency) {
-            if (checkCancelled && checkCancelled()) return;
-            await convertItem(i, canvas, ctx);
+    const b64 = await new Promise((resolve) => {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          resolve(canvas.toDataURL('image/webp', webpQuality));
+          return;
         }
-    };
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.readAsDataURL(blob);
+      }, 'image/webp', webpQuality);
+    });
 
-    const workers = [];
-    for (let w = 0; w < concurrency; w++) {
-        workers.push(runWorker(w));
+    if (checkCancelled && checkCancelled()) return;
+    base64List[index] = b64;
+    completed++;
+    onProgress && onProgress(Math.round((completed / total) * 100));
+  };
+
+  const runWorker = async (startIndex) => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    for (let i = startIndex; i < total; i += concurrency) {
+      if (checkCancelled && checkCancelled()) return;
+      await convertItem(i, canvas, ctx);
     }
-    await Promise.all(workers);
+  };
 
-    if (checkCancelled && checkCancelled()) return '';
+  const workers = [];
+  for (let w = 0; w < concurrency; w++) {
+    workers.push(runWorker(w));
+  }
+  await Promise.all(workers);
 
-    if (stylingFramework === 'pure-css') {
-        return `import React, { useEffect, useRef, useState, useCallback } from 'react';
+  if (checkCancelled && checkCancelled()) return [];
+  return base64List;
+};
+
+/**
+ * Sinh chuỗi code chỉ chứa riêng biến mảng EMBEDDED_FRAMES
+ * Dùng để sao chép thay thế trực tiếp vào biến EMBEDDED_FRAMES trong mã nguồn đã tải về
+ */
+export const generateEmbeddedFramesArrayCode = (base64List, isExport = true) => {
+  if (!base64List || base64List.length === 0) return '';
+  return `// =========================================================================
+// MẢNG DỮ LIỆU KHUNG HÌNH EMBEDDED_FRAMES (${base64List.length} FRAMES DẠNG BASE64)
+// Dùng để sao chép thay thế trực tiếp vào biến EMBEDDED_FRAMES trong file App.jsx
+// Hoặc tạo file src/frames.js: import { EMBEDDED_FRAMES } from './frames';
+// =========================================================================
+${isExport ? 'export ' : ''}const EMBEDDED_FRAMES = ${JSON.stringify(base64List, null, 2)};
+`;
+};
+
+/**
+ * Sinh mã nguồn React component cho chế độ "embedded" (nhúng sẵn mảng frames Base64)
+ */
+export const generateEmbeddedModeCode = async (
+  cachedBitmaps,
+  storyNodes,
+  onProgress,
+  checkCancelled,
+  speedPreset = 'fast',
+  stylingFramework = 'pure-css',
+  enableFrameBlend = true,
+  existingBase64List = null
+) => {
+  if (cachedBitmaps.length === 0) return '';
+
+  const base64List = (existingBase64List && existingBase64List.length > 0)
+    ? existingBase64List
+    : await extractBase64FramesList(cachedBitmaps, onProgress, checkCancelled, speedPreset);
+
+  if (!base64List || base64List.length === 0) return '';
+
+  if (stylingFramework === 'pure-css') {
+    return `import React, { useEffect, useRef, useState, useCallback } from 'react';
 
 // Dữ liệu nội dung Storyboard theo Scroll (0.0 -> 1.0)
 const STORY_NODES = ${JSON.stringify(storyNodes, null, 2)};
 
 // Mảng chứa toàn bộ dữ liệu khung hình dạng Base64 Data URL (Nhúng sẵn trong code)
-const EMBEDDED_FRAMES = ${JSON.stringify(base64List, null, 2)};
+export const EMBEDDED_FRAMES = ${JSON.stringify(base64List, null, 2)};
 
 const TOTAL_FRAMES = EMBEDDED_FRAMES.length;
 
@@ -811,16 +849,16 @@ ${enableFrameBlend ? `        const nextIdx = Math.min(baseIdx + 1, TOTAL_FRAMES
     </div>
   );
 }`;
-    }
+  }
 
-    // Default: Tailwind CSS Embedded Mode
-    return `import React, { useEffect, useRef, useState, useCallback } from 'react';
+  // Default: Tailwind CSS Embedded Mode
+  return `import React, { useEffect, useRef, useState, useCallback } from 'react';
 
 // Dữ liệu nội dung Storyboard theo Scroll (0.0 -> 1.0)
 const STORY_NODES = ${JSON.stringify(storyNodes, null, 2)};
 
 // Mảng chứa toàn bộ dữ liệu khung hình dạng Base64 Data URL (Nhúng sẵn trong code)
-const EMBEDDED_FRAMES = ${JSON.stringify(base64List, null, 2)};
+export const EMBEDDED_FRAMES = ${JSON.stringify(base64List, null, 2)};
 
 const TOTAL_FRAMES = EMBEDDED_FRAMES.length;
 
