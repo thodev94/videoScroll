@@ -19,7 +19,10 @@ import { generateFolderModeCode, generateEmbeddedModeCode } from './codeGenerato
  */
 export const downloadProjectZip = async ({
     cachedBitmaps,
-    exportQuality = 0.85,
+    videoElement = null,
+    exportQuality = 0.95,
+    exportResolution = 'original', // 'original' | '1080p' | 'cached'
+    enableFrameBlend = true,
     videoName = 'smooth-video',
     storyNodes = [],
     stylingFramework = 'pure-css',
@@ -35,61 +38,143 @@ export const downloadProjectZip = async ({
 
     const cleanName = videoName.replace(/\.[^/.]+$/, '');
     const total = cachedBitmaps.length;
+    let frameWidth = cachedBitmaps[0]?.width || 1280;
+    let frameHeight = cachedBitmaps[0]?.height || 720;
 
     // 1. Xử lý ảnh Frames WebP đa luồng
     if (codeExportMode === 'folder' || exportMode === 'frames-only') {
         const folder = exportMode === 'full-project' ? zip.folder('public/frames') : zip.folder('frames');
 
-        const concurrency = Math.min(8, Math.max(4, typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency || 4) : 4));
-        let completed = 0;
+        let directExtracted = false;
 
-        const processFrame = async (index, canvas, ctx) => {
-            if (checkCancelled && checkCancelled()) return false;
+        // Nếu người dùng chọn độ phân giải gốc / 1080p và có video element
+        if (exportResolution !== 'cached' && videoElement && videoElement.duration && videoElement.videoWidth) {
+            try {
+                const vw = videoElement.videoWidth;
+                const vh = videoElement.videoHeight;
+                let targetW = vw;
+                let targetH = vh;
 
-            const item = cachedBitmaps[index];
-            canvas.width = item.width;
-            canvas.height = item.height;
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(item, 0, 0);
+                if (exportResolution === '1080p') {
+                    const maxDim = Math.max(vw, vh);
+                    if (maxDim > 1920) {
+                        const scale = 1920 / maxDim;
+                        targetW = Math.round(vw * scale);
+                        targetH = Math.round(vh * scale);
+                    }
+                }
 
-            const blob = await new Promise((resolve) => {
-                canvas.toBlob(resolve, 'image/webp', exportQuality);
-            });
+                frameWidth = targetW;
+                frameHeight = targetH;
 
-            if (checkCancelled && checkCancelled()) return false;
+                const duration = videoElement.duration;
+                const step = duration / Math.max(1, total - 1);
 
-            const fileName = `frame_${String(index).padStart(4, '0')}.webp`;
-            folder.file(fileName, blob);
+                const canvas = document.createElement('canvas');
+                canvas.width = targetW;
+                canvas.height = targetH;
+                const ctx = canvas.getContext('2d', { alpha: false });
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
 
-            completed++;
-            onProgress(Math.round((completed / total) * (exportMode === 'full-project' ? 80 : 90)));
-            return true;
-        };
+                for (let i = 0; i < total; i++) {
+                    if (checkCancelled && checkCancelled()) return false;
+                    const seekTime = Math.min(i * step, duration - 0.01);
 
-        const runWorker = async (startIndex) => {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            for (let i = startIndex; i < total; i += concurrency) {
-                if (checkCancelled && checkCancelled()) return;
-                await processFrame(i, canvas, ctx);
+                    await new Promise((resolve) => {
+                        const handleSeeked = async () => {
+                            videoElement.removeEventListener('seeked', handleSeeked);
+                            if (checkCancelled && checkCancelled()) {
+                                resolve();
+                                return;
+                            }
+
+                            ctx.drawImage(videoElement, 0, 0, targetW, targetH);
+                            const blob = await new Promise((resBlob) => {
+                                canvas.toBlob(resBlob, 'image/webp', exportQuality);
+                            });
+
+                            const fileName = `frame_${String(i).padStart(4, '0')}.webp`;
+                            folder.file(fileName, blob);
+
+                            onProgress(Math.round(((i + 1) / total) * (exportMode === 'full-project' ? 80 : 90)));
+                            resolve();
+                        };
+
+                        videoElement.addEventListener('seeked', handleSeeked, { once: true });
+                        videoElement.currentTime = seekTime;
+                    });
+
+                    if (i > 0 && i % 8 === 0) {
+                        await new Promise((r) => setTimeout(r, 0));
+                    }
+                }
+                directExtracted = true;
+            } catch (err) {
+                console.warn("Lỗi trích xuất trực tiếp từ video gốc, chuyển sang nạp từ RAM:", err);
+                directExtracted = false;
             }
-        };
-
-        const workers = [];
-        for (let w = 0; w < concurrency; w++) {
-            workers.push(runWorker(w));
         }
-        await Promise.all(workers);
+
+        if (!directExtracted) {
+            // Nạp song song từ cachedBitmaps (nhanh, tận dụng hardware concurrency)
+            const concurrency = Math.min(8, Math.max(4, typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency || 4) : 4));
+            let completed = 0;
+
+            const processFrame = async (index, canvas, ctx) => {
+                if (checkCancelled && checkCancelled()) return false;
+
+                const item = cachedBitmaps[index];
+                canvas.width = item.width;
+                canvas.height = item.height;
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(item, 0, 0);
+
+                const blob = await new Promise((resolve) => {
+                    canvas.toBlob(resolve, 'image/webp', exportQuality);
+                });
+
+                if (checkCancelled && checkCancelled()) return false;
+
+                const fileName = `frame_${String(index).padStart(4, '0')}.webp`;
+                folder.file(fileName, blob);
+
+                completed++;
+                onProgress(Math.round((completed / total) * (exportMode === 'full-project' ? 80 : 90)));
+                return true;
+            };
+
+            const runWorker = async (startIndex) => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                for (let i = startIndex; i < total; i += concurrency) {
+                    if (checkCancelled && checkCancelled()) return;
+                    await processFrame(i, canvas, ctx);
+                }
+            };
+
+            const workers = [];
+            for (let w = 0; w < concurrency; w++) {
+                workers.push(runWorker(w));
+            }
+            await Promise.all(workers);
+        }
 
         if (checkCancelled && checkCancelled()) return false;
 
         folder.file('metadata.json', JSON.stringify({
             totalFrames: total,
-            width: cachedBitmaps[0].width,
-            height: cachedBitmaps[0].height,
+            width: frameWidth,
+            height: frameHeight,
             fpsTarget: 60,
             originalVideo: videoName,
-            blendingSupported: true
+            exportResolution,
+            exportQuality,
+            blendingSupported: enableFrameBlend
         }, null, 2));
     }
 
@@ -105,11 +190,12 @@ export const downloadProjectZip = async ({
                 (p) => onProgress(80 + Math.round(p * 0.1)),
                 checkCancelled,
                 'fast',
-                stylingFramework
+                stylingFramework,
+                enableFrameBlend
             );
             if (checkCancelled && checkCancelled()) return false;
         } else {
-            appCode = generateFolderModeCode(total, storyNodes, stylingFramework);
+            appCode = generateFolderModeCode(total, storyNodes, stylingFramework, enableFrameBlend);
         }
 
         // 1. src/App.jsx (Chứa code chính)
@@ -128,15 +214,30 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 `;
         zip.file('src/main.jsx', mainJsx);
 
-        // 3. index.html
+        // 3. index.html - Chuẩn CSS bảo đảm position: sticky hoạt động 100% không bị cuộn trôi
         const indexHtml = `<!DOCTYPE html>
 <html lang="vi">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Ultra-Smooth Scroll Video</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        background-color: #05070c;
+        color: #ffffff;
+        width: 100%;
+        min-height: 100%;
+        overflow-x: clip;
+      }
+      #root {
+        width: 100%;
+        min-height: 100%;
+      }
+    </style>
   </head>
-  <body style="margin:0;padding:0;background:#05070c;overflow-x:hidden;">
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

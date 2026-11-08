@@ -216,12 +216,11 @@ export default function useFrameEngine({
                     }
 
                     try {
-                        // Kỹ thuật TĂNG TỐC 3X: resizeQuality 'medium' + tắt premultiply & color transform thừa
-                        // Tiết kiệm chu kỳ GPU/CPU, chống quá nhiệt máy và sập nguồn!
+                        // Kỹ thuật nạp chất lượng cao: resizeQuality 'high' (Bicubic / Lanczos) giữ trọn chi tiết sắc nét
                         const bmp = await createImageBitmap(videoEl, {
                             resizeWidth: targetW,
                             resizeHeight: targetH,
-                            resizeQuality: 'medium',
+                            resizeQuality: 'high',
                             premultiplyAlpha: 'none',
                             colorSpaceConversion: 'none'
                         });
@@ -232,6 +231,8 @@ export default function useFrameEngine({
                             fallbackCanvas.width = targetW;
                             fallbackCanvas.height = targetH;
                             fallbackCtx = fallbackCanvas.getContext('2d', { alpha: false });
+                            fallbackCtx.imageSmoothingEnabled = true;
+                            fallbackCtx.imageSmoothingQuality = 'high';
                         }
                         fallbackCtx.drawImage(videoEl, 0, 0, targetW, targetH);
                         try {

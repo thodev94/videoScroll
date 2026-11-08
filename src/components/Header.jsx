@@ -186,8 +186,9 @@ export default function Header({
                                                                                     title="Chế độ tối ưu hóa RAM chống tràn"
                                                                                 >
                                                                                     <option value="eco" className="bg-slate-900">⚡ Tiết kiệm (960p)</option>
-                                                                                    <option value="balanced" className="bg-slate-900">🎯 Cân bằng (1152p)</option>
-                                                                                    <option value="high" className="bg-slate-900">💎 Cao (1280p)</option>
+                                                                                    <option value="balanced" className="bg-slate-900">🎯 Cân bằng (720p HD)</option>
+                                                                                    <option value="high" className="bg-slate-900">💎 Sắc nét (1080p FHD)</option>
+                                                                                    <option value="ultra" className="bg-slate-900">🌟 Siêu nét (Gốc 2K/4K)</option>
                                                                                 </select>
                                                                             </div>
 
@@ -319,24 +320,30 @@ export default function Header({
                                                                                     <Zap className="w-3.5 h-3.5 text-amber-400" />
                                                                                     Tối ưu RAM (Chống tràn & sập nguồn):
                                                                                 </span>
-                                                                                <div className="grid grid-cols-3 gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800 text-[11px]">
+                                                                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800 text-[11px]">
                                                                                     <button
                                                                                         onClick={() => onRamProfileChange && onRamProfileChange('eco')}
                                                                                         className={`py-1.5 rounded-lg font-semibold text-center transition ${ramProfile === 'eco' ? 'bg-amber-400 text-slate-950 font-bold' : 'text-slate-400'}`}
                                                                                     >
-                                                                                        ⚡ Tiết kiệm
+                                                                                        ⚡ Tiết kiệm (960p)
                                                                                     </button>
                                                                                     <button
                                                                                         onClick={() => onRamProfileChange && onRamProfileChange('balanced')}
                                                                                         className={`py-1.5 rounded-lg font-semibold text-center transition ${ramProfile === 'balanced' ? 'bg-cyan-500 text-slate-950 font-bold' : 'text-slate-400'}`}
                                                                                     >
-                                                                                        🎯 Cân bằng
+                                                                                        🎯 Cân bằng (720p)
                                                                                     </button>
                                                                                     <button
                                                                                         onClick={() => onRamProfileChange && onRamProfileChange('high')}
                                                                                         className={`py-1.5 rounded-lg font-semibold text-center transition ${ramProfile === 'high' ? 'bg-indigo-500 text-white font-bold' : 'text-slate-400'}`}
                                                                                     >
-                                                                                        💎 Cao
+                                                                                        💎 1080p FHD
+                                                                                    </button>
+                                                                                    <button
+                                                                                        onClick={() => onRamProfileChange && onRamProfileChange('ultra')}
+                                                                                        className={`py-1.5 rounded-lg font-semibold text-center transition ${ramProfile === 'ultra' ? 'bg-gradient-to-r from-cyan-400 to-indigo-500 text-slate-950 font-bold' : 'text-slate-400'}`}
+                                                                                    >
+                                                                                        🌟 Gốc 2K/4K
                                                                                     </button>
                                                                                 </div>
                                                                             </div>

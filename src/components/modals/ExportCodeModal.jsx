@@ -42,11 +42,12 @@ export default function ExportCodeModal({
     onOpenExportZip,
     onDownloadProjectZip,
     onClose,
+    enableFrameBlend = true,
 }) {
     const [speedPreset, setSpeedPreset] = useState('fast');
 
     // Tạo code theo framework styling đã chọn theo thời gian thực
-    const folderCode = generateFolderModeCode(cachedBitmapsCount || 200, storyNodes, stylingFramework);
+    const folderCode = generateFolderModeCode(cachedBitmapsCount || 200, storyNodes, stylingFramework, enableFrameBlend);
     const activeCode = codeExportMode === 'embedded' ? embeddedFramesCode : folderCode;
     const activeFileName = 'App.jsx';
 

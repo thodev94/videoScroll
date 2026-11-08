@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { FileArchive, Download, Info, X, Check, Rocket, FolderArchive, Palette } from 'lucide-react';
+import { FileArchive, Download, Info, X, Check, Rocket, FolderArchive, Palette, Sparkles } from 'lucide-react';
 
 /**
  * Modal Xuất Trọn Bộ Dự Án Web hoặc Frames dạng ZIP
  * Tự động tạo sẵn cấu trúc src/App.jsx, public/frames/, package.json, index.html
- * Người dùng tải về chỉ cần chạy lệnh `npm install && npm run dev` là chạy ngay!
+ * Tăng cường chất lượng frame tối đa (Video Gốc 2K/4K, Full HD 1080p, WebP 95% chống vỡ hình)
  */
 export default function ExportZipModal({
     cachedBitmapsCount,
@@ -15,24 +15,28 @@ export default function ExportZipModal({
     onDownloadZip,
     onCancelZip,
     onClose,
+    videoMetrics,
+    enableFrameBlend = true
 }) {
     const [exportProjectMode, setExportProjectMode] = useState('full-project'); // 'full-project' | 'frames-only'
     const [zipFramework, setZipFramework] = useState('pure-css'); // 'pure-css' | 'tailwind'
+    const [exportResolution, setExportResolution] = useState('original'); // 'original' | '1080p' | 'cached'
+    const [zipBlend, setZipBlend] = useState(enableFrameBlend);
 
     const handleStartDownload = () => {
-        onDownloadZip(exportProjectMode, zipFramework);
+        onDownloadZip(exportProjectMode, zipFramework, exportResolution, exportQuality, zipBlend);
     };
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-            <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-xl overflow-hidden shadow-2xl">
+            <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl">
 
-                <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between">
+                <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between shrink-0">
                     <div className="flex items-center gap-2.5">
                         <FileArchive className="w-5 h-5 text-cyan-400" />
                         <div>
                             <h3 className="font-bold text-white text-base sm:text-lg">Xuất & Tải Dự Án Hoàn Chỉnh</h3>
-                            <p className="text-xs text-slate-400">Tự động cấu hình sẵn src/App.jsx và public/frames/ để chạy ngay</p>
+                            <p className="text-xs text-slate-400">Tự động cấu hình sẵn src/App.jsx và public/frames/ độ nét cao để chạy ngay</p>
                         </div>
                     </div>
                     <button
@@ -44,7 +48,7 @@ export default function ExportZipModal({
                     </button>
                 </div>
 
-                <div className="p-5 sm:p-6 space-y-4 text-xs sm:text-sm">
+                <div className="p-5 sm:p-6 space-y-4 text-xs sm:text-sm overflow-y-auto custom-scrollbar flex-1">
 
                     {/* LỰA CHỌN: TRỌN BỘ DỰ ÁN (CÓ src/App.jsx) VS CHỈ THƯ MỤC FRAMES */}
                     <div className="space-y-2">
@@ -94,6 +98,75 @@ export default function ExportZipModal({
                         </div>
                     </div>
 
+                    {/* LỰA CHỌN ĐỘ PHÂN GIẢI FRAME (CHỐNG MỜ & GIỮ ĐỘ SẮC NÉT TUYỆT ĐỐI) */}
+                    <div className="p-3.5 bg-slate-950/80 rounded-2xl border border-slate-800 space-y-2">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                                <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                                Độ phân giải khung hình xuất (Tăng nét):
+                            </span>
+                            <span className="text-[10px] text-cyan-300 bg-cyan-950/80 border border-cyan-800/60 px-2 py-0.5 rounded-full font-mono font-bold">
+                                {exportResolution === 'original' ? 'Nguyên bản Video (Siêu nét)' : exportResolution === '1080p' ? 'Full HD 1080p' : 'Theo RAM preview'}
+                            </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setExportResolution('original')}
+                                className={`p-2.5 rounded-xl border text-left transition ${
+                                    exportResolution === 'original'
+                                        ? 'bg-cyan-500/15 border-cyan-500 text-white shadow-md shadow-cyan-500/15'
+                                        : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-white'
+                                }`}
+                            >
+                                <div className="font-bold text-xs text-cyan-300 flex items-center justify-between">
+                                    <span>🌟 Gốc từ Video</span>
+                                    {exportResolution === 'original' && <Check className="w-3 h-3 text-cyan-400" />}
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-0.5">
+                                    {videoMetrics ? `${videoMetrics.width}x${videoMetrics.height}` : '2K/4K/Gốc'} (100% Cực nét)
+                                </p>
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => setExportResolution('1080p')}
+                                className={`p-2.5 rounded-xl border text-left transition ${
+                                    exportResolution === '1080p'
+                                        ? 'bg-indigo-500/15 border-indigo-500 text-white shadow-md shadow-indigo-500/15'
+                                        : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-white'
+                                }`}
+                            >
+                                <div className="font-bold text-xs text-indigo-300 flex items-center justify-between">
+                                    <span>💎 Full HD</span>
+                                    {exportResolution === '1080p' && <Check className="w-3 h-3 text-indigo-400" />}
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-0.5">
+                                    1920x1080 (Chuẩn Web sắc nét)
+                                </p>
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => setExportResolution('cached')}
+                                className={`p-2.5 rounded-xl border text-left transition ${
+                                    exportResolution === 'cached'
+                                        ? 'bg-amber-500/15 border-amber-500 text-white shadow-md shadow-amber-500/15'
+                                        : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-white'
+                                }`}
+                            >
+                                <div className="font-bold text-xs text-amber-300 flex items-center justify-between">
+                                    <span>⚡ Theo RAM</span>
+                                    {exportResolution === 'cached' && <Check className="w-3 h-3 text-amber-400" />}
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-0.5">
+                                    Nhanh nhất (Theo preview)
+                                </p>
+                            </button>
+                        </div>
+                    </div>
+
                     {/* LỰA CHỌN CSS KHI TẢI TRỌN BỘ DỰ ÁN */}
                     {exportProjectMode === 'full-project' && (
                         <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 space-y-2">
@@ -128,37 +201,38 @@ export default function ExportZipModal({
                         </div>
                     )}
 
-                    {/* Thông tin số frame & định dạng */}
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                            <label className="text-slate-400 text-xs font-medium">Tổng số Frame:</label>
-                            <input
-                                type="text"
-                                disabled
-                                value={`${cachedBitmapsCount} frames`}
-                                className="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-3 py-1.5 text-white font-mono text-xs"
-                            />
+                    {/* Frame Blending Toggle */}
+                    <div className="flex items-center justify-between p-3 bg-slate-950/80 rounded-xl border border-slate-800">
+                        <div className="space-y-0.5 pr-2">
+                            <span className="text-xs font-semibold text-slate-200 block">Sub-frame Blending trong code xuất:</span>
+                            <span className="text-[11px] text-slate-400 block">
+                                {zipBlend ? 'Hòa trộn mượt mà (Chuyển động liên tục như phim)' : 'Tắt hòa trộn (Sắc nét 100%, không bóng mờ khi dừng cuộn)'}
+                            </span>
                         </div>
-                        <div className="space-y-1">
-                            <label className="text-slate-400 text-xs font-medium">Định dạng nén:</label>
-                            <input
-                                type="text"
-                                disabled
-                                value="WebP (Tối ưu cực nhẹ)"
-                                className="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-3 py-1.5 text-cyan-400 font-semibold text-xs"
-                            />
-                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setZipBlend(!zipBlend)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition shrink-0 ${
+                                zipBlend
+                                    ? 'bg-cyan-500/20 border-cyan-500 text-cyan-300 shadow-[0_0_10px_rgba(56,189,248,0.2)]'
+                                    : 'bg-slate-800 border-slate-700 text-slate-400'
+                            }`}
+                        >
+                            {zipBlend ? 'BẬT' : 'TẮT'}
+                        </button>
                     </div>
 
-                    {/* Chất lượng ảnh nén */}
-                    <div className="space-y-1.5">
-                        <div className="flex justify-between text-xs text-slate-400">
-                            <span>Chất lượng ảnh nén (WebP Quality):</span>
-                            <span className="text-cyan-400 font-mono font-bold">{Math.round(exportQuality * 100)}%</span>
+                    {/* Chất lượng ảnh nén WebP */}
+                    <div className="space-y-1.5 p-3 bg-slate-950/80 rounded-xl border border-slate-800">
+                        <div className="flex justify-between items-center text-xs">
+                            <span className="text-slate-300 font-medium">Chất lượng ảnh nén (WebP Quality):</span>
+                            <span className="text-cyan-400 font-mono font-bold bg-cyan-950/80 border border-cyan-800/60 px-2 py-0.5 rounded-lg">
+                                {Math.round(exportQuality * 100)}% {exportQuality >= 0.90 ? '🔥 Cực kỳ sắc nét' : '⚡ Tiêu chuẩn'}
+                            </span>
                         </div>
                         <input
                             type="range"
-                            min="0.5"
+                            min="0.75"
                             max="1"
                             step="0.05"
                             value={exportQuality}
@@ -166,6 +240,11 @@ export default function ExportZipModal({
                             disabled={isZipping}
                             className="w-full accent-cyan-400 cursor-pointer"
                         />
+                        <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                            <span>75% (Nhẹ)</span>
+                            <span className="text-cyan-400 font-bold">95% (Khuyên dùng - Không mờ)</span>
+                            <span>100% (Lossless)</span>
+                        </div>
                     </div>
 
                     {/* Loading State or Instruction Note */}
@@ -174,7 +253,7 @@ export default function ExportZipModal({
                             <div className="flex justify-between items-center text-xs font-mono">
                                 <span className="text-slate-300 font-medium flex items-center gap-2">
                                     <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
-                                    Đang đóng gói cấu trúc dự án (.zip)...
+                                    Đang trích xuất frame độ nét cao & đóng gói dự án (.zip)...
                                 </span>
                                 <span className="text-cyan-400 font-bold">{zipProgress}%</span>
                             </div>
@@ -190,7 +269,7 @@ export default function ExportZipModal({
                             <Info className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
                             <p className="text-[11px] text-slate-400 leading-relaxed">
                                 {exportProjectMode === 'full-project'
-                                    ? <span>Sau khi tải về, bạn chỉ cần giải nén thư mục và mở terminal gõ: <code className="text-emerald-400 font-mono font-bold">npm install && npm run dev</code> là dự án chạy ngay lập tức!</span>
+                                    ? <span>Sau khi tải về, bạn chỉ cần giải nén thư mục và mở terminal gõ: <code className="text-emerald-400 font-mono font-bold">npm install && npm run dev</code> là dự án chạy ngay lập tức với chất lượng sắc nét 100%!</span>
                                     : <span>Giải nén thư mục <code className="text-cyan-300 font-mono">frames/</code> vào thư mục <code className="text-yellow-400 font-mono">public/</code> của dự án Next.js hoặc Vite của bạn.</span>}
                             </p>
                         </div>
@@ -198,7 +277,7 @@ export default function ExportZipModal({
                 </div>
 
                 {/* Footer Modal Actions */}
-                <div className="p-4 bg-slate-950/60 border-t border-slate-800 flex justify-end gap-3">
+                <div className="p-4 bg-slate-950/60 border-t border-slate-800 flex justify-end gap-3 shrink-0">
                     {isZipping ? (
                         <button
                             onClick={onCancelZip}
@@ -224,7 +303,7 @@ export default function ExportZipModal({
                         <Download className="w-3.5 h-3.5" />
                         <span>
                             {isZipping
-                                ? 'Đang tạo gói...'
+                                ? 'Đang xuất độ nét cao...'
                                 : exportProjectMode === 'full-project'
                                 ? 'Tải Trọn Bộ Dự Án .ZIP (Có src/App.jsx)'
                                 : 'Tải Thư Mục Frames .ZIP'}

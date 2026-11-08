@@ -363,29 +363,33 @@ export const getOptimalDimensions = (vw, vh, ramProfile = 'balanced', screenMetr
     if (!vw || !vh) return { width: 1024, height: 576, scale: 0.8, profile: ramProfile };
 
     const isPortrait = vh > vw;
-    let maxDimension = 1152; // Cân bằng chuẩn
+    let maxDimension = 1280; // Cân bằng chuẩn
 
     switch (ramProfile) {
         case 'eco':
-            // Tiết kiệm RAM tối đa: 960px ngang, 540px dọc (vẫn cực nét nhờ Canvas bicubic smoothing)
+            // Tiết kiệm RAM tối đa: 960px
             maxDimension = isPortrait ? 540 : 960;
             break;
         case 'high':
-            // Độ nét tối đa: 1280px ngang, 720px dọc
-            maxDimension = isPortrait ? 720 : 1280;
+            // Full HD 1080p: Sắc nét chuẩn Studio cho màn hình máy tính
+            maxDimension = isPortrait ? 1080 : 1920;
+            break;
+        case 'ultra':
+            // Siêu nét nguyên bản: Giữ 100% độ phân giải gốc từ Video (2K / 4K)
+            maxDimension = Math.max(vw, vh);
             break;
         case 'balanced':
         default:
-            // Cân bằng tối ưu: 1152px ngang, 640px dọc
-            maxDimension = isPortrait ? 640 : 1152;
+            // Cân bằng HD: 1280px
+            maxDimension = isPortrait ? 720 : 1280;
             break;
     }
 
-    // Tự động bảo vệ máy nếu thiết bị có ít RAM (<= 4GB) hoặc là màn hình điện thoại nhỏ
-    if (typeof navigator !== 'undefined' && navigator.deviceMemory && navigator.deviceMemory <= 4) {
+    // Tự động bảo vệ máy nếu thiết bị có ít RAM (<= 4GB) và người dùng không ép chế độ ultra/high
+    if (ramProfile !== 'ultra' && ramProfile !== 'high' && typeof navigator !== 'undefined' && navigator.deviceMemory && navigator.deviceMemory <= 4) {
         maxDimension = Math.min(maxDimension, isPortrait ? 540 : 960);
     }
-    if (screenMetrics && screenMetrics.isMobile) {
+    if (ramProfile !== 'ultra' && ramProfile !== 'high' && screenMetrics && screenMetrics.isMobile) {
         maxDimension = Math.min(maxDimension, isPortrait ? 540 : 960);
     }
 

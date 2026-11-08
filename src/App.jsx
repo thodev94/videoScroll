@@ -23,8 +23,8 @@ export default function App() {
     const [videoSrc, setVideoSrc] = useState('https://assets.mixkit.co/videos/preview/mixkit-clouds-and-blue-sky-2408-large.mp4');
     const [videoName, setVideoName] = useState('paraglide-mountain.mp4');
     const [framesCount, setFramesCount] = useState(200);
-    const [exportQuality, setExportQuality] = useState(0.85);
-    const [exportWidth, setExportWidth] = useState(1280);
+    const [exportQuality, setExportQuality] = useState(0.95);
+    const [exportWidth, setExportWidth] = useState(1920);
 
     // Motion Settings
     const [enableFrameBlend, setEnableFrameBlend] = useState(true);
@@ -125,7 +125,13 @@ export default function App() {
     };
 
     // Đóng gói và tải trọn bộ frames dạng ZIP hoặc Full Project
-    const handleDownloadZip = async (exportMode = 'full-project', zipFramework = stylingFramework) => {
+    const handleDownloadZip = async (
+        exportMode = 'full-project',
+        zipFramework = stylingFramework,
+        exportResolution = 'original',
+        customQuality = exportQuality,
+        zipEnableBlend = enableFrameBlend
+    ) => {
         if (cachedBitmaps.length === 0) return;
         setIsZipping(true);
         setZipProgress(0);
@@ -134,7 +140,10 @@ export default function App() {
         try {
             await downloadProjectZip({
                 cachedBitmaps,
-                exportQuality,
+                videoElement: videoRef.current,
+                exportQuality: customQuality,
+                exportResolution,
+                enableFrameBlend: zipEnableBlend,
                 videoName,
                 storyNodes,
                 stylingFramework: zipFramework,
@@ -318,10 +327,11 @@ export default function App() {
                     onOpenExportZip={() => setActiveModal('export-zip')}
                     onDownloadProjectZip={(framework) => handleDownloadZip('full-project', framework || stylingFramework)}
                     onClose={() => setActiveModal(null)}
+                    enableFrameBlend={enableFrameBlend}
                 />
             )}
 
-            {/* Modal Xuất Trọn Bộ Frames dạng ZIP - Hỗ trợ nút HỦY */}
+            {/* Modal Xuất Trọn Bộ Frames dạng ZIP - Hỗ trợ nút HỦY & Tăng Chất Lượng Siêu Nét */}
             {activeModal === 'export-zip' && (
                 <ExportZipModal
                     cachedBitmapsCount={cachedBitmaps.length}
@@ -332,6 +342,8 @@ export default function App() {
                     onDownloadZip={handleDownloadZip}
                     onCancelZip={handleCancelZip}
                     onClose={() => setActiveModal(null)}
+                    videoMetrics={videoMetrics}
+                    enableFrameBlend={enableFrameBlend}
                 />
             )}
 

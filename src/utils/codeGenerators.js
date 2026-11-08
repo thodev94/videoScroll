@@ -8,7 +8,7 @@
  * @param {string} [stylingFramework='pure-css'] - 'pure-css' | 'tailwind'
  * @returns {string} Mã nguồn JSX
  */
-export const generateFolderModeCode = (frameCount, storyNodes, stylingFramework = 'pure-css') => {
+export const generateFolderModeCode = (frameCount, storyNodes, stylingFramework = 'pure-css', enableFrameBlend = true) => {
     if (stylingFramework === 'pure-css') {
         return `import React, { useEffect, useRef, useState, useCallback } from 'react';
 
@@ -25,6 +25,9 @@ export default function App() {
   const [scrollProgress, setScrollProgress] = useState(0);
   const [loadedPercent, setLoadedPercent] = useState(0);
 
+  const targetProgressRef = useRef(0);
+  const smoothProgressRef = useRef(0);
+
   // 1. Tải trước toàn bộ frames vào bộ nhớ Image
   useEffect(() => {
     const images = [];
@@ -38,7 +41,7 @@ export default function App() {
         loaded++;
         setLoadedPercent(Math.round((loaded / TOTAL_FRAMES) * 100));
         if (loaded === 1 && canvasRef.current) {
-          drawCover(img, 1.0);
+          drawFrame(0);
         }
       };
       images.push(img);
@@ -46,35 +49,69 @@ export default function App() {
     imagesRef.current = images;
   }, []);
 
-  // 2. Vẽ hình ảnh phủ kín Canvas - Tự động detect tỷ lệ video & màn hình (Cover fit)
-  const drawCover = useCallback((img, alpha = 1.0) => {
+  // 2. Hàm vẽ frame lên Canvas với tỷ lệ Cover chuẩn xác, tự động căn giữa không bị méo/bể hình
+  const drawFrame = useCallback((frameIdx, blendIdx = -1, fraction = 0) => {
     const canvas = canvasRef.current;
-    if (!canvas || !img) return;
-    const ctx = canvas.getContext('2d');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) return;
+
     const cw = canvas.width;
     const ch = canvas.height;
-    const sw = img.naturalWidth || img.width;
-    const sh = img.naturalHeight || img.height;
-    if (!sw || !sh) return;
+    if (!cw || !ch) return;
 
-    // Detect tỷ lệ video so với màn hình để cover hoàn hảo không méo hình
+    // Tìm ảnh hợp lệ (hoặc ảnh gần nhất đã tải xong để không bao giờ bị đen màn hình)
+    let img1 = imagesRef.current[frameIdx];
+    if (!img1 || !img1.complete || !img1.naturalWidth) {
+      for (let o = 1; o < TOTAL_FRAMES; o++) {
+        const prev = imagesRef.current[Math.max(0, frameIdx - o)];
+        if (prev && prev.complete && prev.naturalWidth) { img1 = prev; break; }
+        const next = imagesRef.current[Math.min(TOTAL_FRAMES - 1, frameIdx + o)];
+        if (next && next.complete && next.naturalWidth) { img1 = next; break; }
+      }
+    }
+    if (!img1 || !img1.naturalWidth) return;
+
+    const sw = img1.naturalWidth || img1.width;
+    const sh = img1.naturalHeight || img1.height;
     const ratio = Math.max(cw / sw, ch / sh);
     const nw = sw * ratio;
     const nh = sh * ratio;
     const cx = (cw - nw) * 0.5;
     const cy = (ch - nh) * 0.5;
 
-    ctx.globalAlpha = alpha;
-    ctx.drawImage(img, cx, cy, nw, nh);
+    // Luôn phủ màu nền đen rạp chiếu phim trước khi vẽ
+    ctx.fillStyle = '#05070c';
+    ctx.fillRect(0, 0, cw, ch);
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    ctx.globalAlpha = 1.0;
+    ctx.drawImage(img1, cx, cy, nw, nh);
+${enableFrameBlend ? `
+    // Sub-frame blending: Chỉ hòa trộn khi chuyển tiếp rõ rệt, loại bỏ hiện tượng bóng mờ (ghosting)
+    if (blendIdx >= 0 && fraction > 0.05 && fraction < 0.95 && blendIdx !== frameIdx) {
+      const img2 = imagesRef.current[blendIdx];
+      if (img2 && img2.complete && img2.naturalWidth && img2 !== img1) {
+        ctx.globalAlpha = fraction;
+        ctx.drawImage(img2, cx, cy, nw, nh);
+        ctx.globalAlpha = 1.0;
+      }
+    }` : ''}
   }, []);
 
-  // 3. Tự động resize Canvas theo phân giải màn hình & Device Pixel Ratio (DPR)
+  // 3. Tự động resize Canvas đồng bộ DPR và phân giải màn hình
   useEffect(() => {
     const handleResize = () => {
       if (!canvasRef.current) return;
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      canvasRef.current.width = window.innerWidth * dpr;
-      canvasRef.current.height = window.innerHeight * dpr;
+      canvasRef.current.width = Math.round(window.innerWidth * dpr);
+      canvasRef.current.height = Math.round(window.innerHeight * dpr);
+
+      // Vẽ lại frame ngay sau khi resize để không bị trắng/đen màn hình
+      const curIdx = Math.min(Math.max(0, Math.floor(smoothProgressRef.current * (TOTAL_FRAMES - 1))), TOTAL_FRAMES - 1);
+      drawFrame(curIdx);
     };
 
     window.addEventListener('resize', handleResize);
@@ -85,56 +122,51 @@ export default function App() {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('orientationchange', handleResize);
     };
-  }, []);
+  }, [drawFrame]);
 
   // 4. Vòng lặp render đồng bộ LERP + Sub-frame Blending
   useEffect(() => {
     let animId;
-    let targetProgress = 0;
-    let smoothProgress = 0;
     let lastTime = performance.now();
 
     const handleScroll = () => {
       if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
       const total = containerRef.current.offsetHeight - window.innerHeight;
-      targetProgress = Math.min(Math.max(-rect.top / (total || 1), 0), 1);
+      targetProgressRef.current = Math.min(Math.max(-rect.top / (total || 1), 0), 1);
     };
 
     const renderLoop = (timestamp) => {
       const dt = Math.min((timestamp - lastTime) / 1000, 0.1);
       lastTime = timestamp;
 
+      const diff = targetProgressRef.current - smoothProgressRef.current;
       const step = 1 - Math.exp(-12.0 * dt);
-      smoothProgress += (targetProgress - smoothProgress) * step;
-      setScrollProgress(smoothProgress);
 
-      const exact = smoothProgress * (TOTAL_FRAMES - 1);
-      const baseIdx = Math.floor(exact);
-      const nextIdx = Math.min(baseIdx + 1, TOTAL_FRAMES - 1);
-      const fraction = exact - baseIdx;
+      if (Math.abs(diff) > 0.0001) {
+        smoothProgressRef.current += diff * step;
+        setScrollProgress(smoothProgressRef.current);
 
-      const img1 = imagesRef.current[baseIdx];
-      const img2 = imagesRef.current[nextIdx];
+        const exact = smoothProgressRef.current * (TOTAL_FRAMES - 1);
+        const baseIdx = Math.floor(exact);
+${enableFrameBlend ? `        const nextIdx = Math.min(baseIdx + 1, TOTAL_FRAMES - 1);
+        const fraction = exact - baseIdx;
 
-      if (img1 && img1.complete) {
-        drawCover(img1, 1.0);
-        if (fraction > 0.02 && img2 && img2.complete && img1 !== img2) {
-          drawCover(img2, fraction);
-        }
+        drawFrame(baseIdx, nextIdx, fraction);` : `        drawFrame(baseIdx);`}
       }
 
       animId = requestAnimationFrame(renderLoop);
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll(); // Kích hoạt ngay để nhận diện vị trí scroll ban đầu
     animId = requestAnimationFrame(renderLoop);
 
     return () => {
       window.removeEventListener('scroll', handleScroll);
       cancelAnimationFrame(animId);
     };
-  }, [drawCover]);
+  }, [drawFrame]);
 
   // Vị trí node theo Pure CSS
   const getPosClass = (pos) => {
@@ -150,12 +182,14 @@ export default function App() {
 
   return (
     <div ref={containerRef} className="v-scroll-container">
-      {/* Toàn bộ style Pure CSS tự chứa - Không cần Tailwind hay bất kỳ thư viện ngoài nào */}
+      {/* Pure CSS độc lập hoàn toàn - Zero Dependencies */}
       <style>{\`
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; background: #05070c; color: #fff; width: 100%; min-height: 100%; overflow-x: clip; }
         .v-scroll-container { position: relative; width: 100%; height: 500vh; background-color: #05070c; color: #fff; font-family: system-ui, -apple-system, sans-serif; }
-        .v-viewport { position: sticky; top: 0; left: 0; width: 100%; height: 100vh; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-        .v-canvas { width: 100%; height: 100%; object-fit: cover; pointer-events: none; user-select: none; }
-        .v-overlay-layer { position: absolute; inset: 0; pointer-events: none; padding: 24px; box-sizing: border-box; }
+        .v-viewport { position: sticky; top: 0; left: 0; width: 100vw; height: 100vh; height: 100dvh; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #05070c; }
+        .v-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; user-select: none; }
+        .v-overlay-layer { position: absolute; inset: 0; pointer-events: none; padding: 24px; box-sizing: border-box; z-index: 10; }
         .v-node { position: absolute; max-width: 500px; transition: all 0.7s cubic-bezier(0.16, 1, 0.3, 1); }
         .v-visible { opacity: 1; transform: translateY(0); filter: blur(0); pointer-events: auto; }
         .v-hidden { opacity: 0; transform: translateY(24px); filter: blur(8px); pointer-events: none; }
@@ -169,7 +203,7 @@ export default function App() {
         .v-desc { margin-top: 10px; font-size: 15px; color: #cbd5e1; line-height: 1.6; background: rgba(0,0,0,0.5); backdrop-filter: blur(12px); padding: 14px 18px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.1); }
         .v-btn { margin-top: 14px; padding: 10px 22px; background: #38bdf8; color: #000; font-weight: 800; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; border: none; border-radius: 12px; cursor: pointer; box-shadow: 0 4px 15px rgba(56, 189, 248, 0.3); transition: all 0.2s; }
         .v-btn:hover { background: #7dd3fc; transform: translateY(-2px); }
-        .v-loader { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(5,7,12,0.85); font-family: monospace; font-size: 13px; color: #38bdf8; }
+        .v-loader { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(5,7,12,0.85); font-family: monospace; font-size: 13px; color: #38bdf8; z-index: 20; }
         @media (max-width: 640px) {
           .v-pos-tl, .v-pos-bl { left: 1rem; right: 1rem; }
           .v-pos-tr, .v-pos-br { right: 1rem; left: 1rem; }
@@ -235,6 +269,9 @@ export default function App() {
   const [scrollProgress, setScrollProgress] = useState(0);
   const [loadedPercent, setLoadedPercent] = useState(0);
 
+  const targetProgressRef = useRef(0);
+  const smoothProgressRef = useRef(0);
+
   // 1. Tải trước toàn bộ frames vào bộ nhớ Image
   useEffect(() => {
     const images = [];
@@ -248,7 +285,7 @@ export default function App() {
         loaded++;
         setLoadedPercent(Math.round((loaded / TOTAL_FRAMES) * 100));
         if (loaded === 1 && canvasRef.current) {
-          drawCover(img, 1.0);
+          drawFrame(0);
         }
       };
       images.push(img);
@@ -256,34 +293,69 @@ export default function App() {
     imagesRef.current = images;
   }, []);
 
-  // 2. Vẽ hình ảnh phủ kín Canvas - Tự động detect tỷ lệ video & màn hình (Cover fit)
-  const drawCover = useCallback((img, alpha = 1.0) => {
+  // 2. Hàm vẽ frame lên Canvas với tỷ lệ Cover chuẩn xác, tự động căn giữa không bị méo/bể hình
+  const drawFrame = useCallback((frameIdx, blendIdx = -1, fraction = 0) => {
     const canvas = canvasRef.current;
-    if (!canvas || !img) return;
-    const ctx = canvas.getContext('2d');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) return;
+
     const cw = canvas.width;
     const ch = canvas.height;
-    const sw = img.naturalWidth || img.width;
-    const sh = img.naturalHeight || img.height;
-    if (!sw || !sh) return;
+    if (!cw || !ch) return;
 
+    // Tìm ảnh hợp lệ (hoặc ảnh gần nhất đã tải xong để không bao giờ bị đen màn hình)
+    let img1 = imagesRef.current[frameIdx];
+    if (!img1 || !img1.complete || !img1.naturalWidth) {
+      for (let o = 1; o < TOTAL_FRAMES; o++) {
+        const prev = imagesRef.current[Math.max(0, frameIdx - o)];
+        if (prev && prev.complete && prev.naturalWidth) { img1 = prev; break; }
+        const next = imagesRef.current[Math.min(TOTAL_FRAMES - 1, frameIdx + o)];
+        if (next && next.complete && next.naturalWidth) { img1 = next; break; }
+      }
+    }
+    if (!img1 || !img1.naturalWidth) return;
+
+    const sw = img1.naturalWidth || img1.width;
+    const sh = img1.naturalHeight || img1.height;
     const ratio = Math.max(cw / sw, ch / sh);
     const nw = sw * ratio;
     const nh = sh * ratio;
     const cx = (cw - nw) * 0.5;
     const cy = (ch - nh) * 0.5;
 
-    ctx.globalAlpha = alpha;
-    ctx.drawImage(img, cx, cy, nw, nh);
+    // Luôn phủ màu nền đen rạp chiếu phim trước khi vẽ
+    ctx.fillStyle = '#05070c';
+    ctx.fillRect(0, 0, cw, ch);
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    ctx.globalAlpha = 1.0;
+    ctx.drawImage(img1, cx, cy, nw, nh);
+${enableFrameBlend ? `
+    // Sub-frame blending: Chỉ hòa trộn khi chuyển tiếp rõ rệt, loại bỏ hiện tượng bóng mờ (ghosting)
+    if (blendIdx >= 0 && fraction > 0.05 && fraction < 0.95 && blendIdx !== frameIdx) {
+      const img2 = imagesRef.current[blendIdx];
+      if (img2 && img2.complete && img2.naturalWidth && img2 !== img1) {
+        ctx.globalAlpha = fraction;
+        ctx.drawImage(img2, cx, cy, nw, nh);
+        ctx.globalAlpha = 1.0;
+      }
+    }` : ''}
   }, []);
 
-  // 3. Tự động resize Canvas theo phân giải màn hình & Device Pixel Ratio (DPR)
+  // 3. Tự động resize Canvas đồng bộ DPR và phân giải màn hình
   useEffect(() => {
     const handleResize = () => {
       if (!canvasRef.current) return;
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      canvasRef.current.width = window.innerWidth * dpr;
-      canvasRef.current.height = window.innerHeight * dpr;
+      canvasRef.current.width = Math.round(window.innerWidth * dpr);
+      canvasRef.current.height = Math.round(window.innerHeight * dpr);
+
+      // Vẽ lại frame ngay sau khi resize để không bị trắng/đen màn hình
+      const curIdx = Math.min(Math.max(0, Math.floor(smoothProgressRef.current * (TOTAL_FRAMES - 1))), TOTAL_FRAMES - 1);
+      drawFrame(curIdx);
     };
 
     window.addEventListener('resize', handleResize);
@@ -294,67 +366,62 @@ export default function App() {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('orientationchange', handleResize);
     };
-  }, []);
+  }, [drawFrame]);
 
   // 4. Vòng lặp render đồng bộ LERP + Sub-frame Blending
   useEffect(() => {
     let animId;
-    let targetProgress = 0;
-    let smoothProgress = 0;
     let lastTime = performance.now();
 
     const handleScroll = () => {
       if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
       const total = containerRef.current.offsetHeight - window.innerHeight;
-      targetProgress = Math.min(Math.max(-rect.top / (total || 1), 0), 1);
+      targetProgressRef.current = Math.min(Math.max(-rect.top / (total || 1), 0), 1);
     };
 
     const renderLoop = (timestamp) => {
       const dt = Math.min((timestamp - lastTime) / 1000, 0.1);
       lastTime = timestamp;
 
+      const diff = targetProgressRef.current - smoothProgressRef.current;
       const step = 1 - Math.exp(-12.0 * dt);
-      smoothProgress += (targetProgress - smoothProgress) * step;
-      setScrollProgress(smoothProgress);
 
-      const exact = smoothProgress * (TOTAL_FRAMES - 1);
-      const baseIdx = Math.floor(exact);
-      const nextIdx = Math.min(baseIdx + 1, TOTAL_FRAMES - 1);
-      const fraction = exact - baseIdx;
+      if (Math.abs(diff) > 0.0001) {
+        smoothProgressRef.current += diff * step;
+        setScrollProgress(smoothProgressRef.current);
 
-      const img1 = imagesRef.current[baseIdx];
-      const img2 = imagesRef.current[nextIdx];
+        const exact = smoothProgressRef.current * (TOTAL_FRAMES - 1);
+        const baseIdx = Math.floor(exact);
+${enableFrameBlend ? `        const nextIdx = Math.min(baseIdx + 1, TOTAL_FRAMES - 1);
+        const fraction = exact - baseIdx;
 
-      if (img1 && img1.complete) {
-        drawCover(img1, 1.0);
-        if (fraction > 0.02 && img2 && img2.complete && img1 !== img2) {
-          drawCover(img2, fraction);
-        }
+        drawFrame(baseIdx, nextIdx, fraction);` : `        drawFrame(baseIdx);`}
       }
 
       animId = requestAnimationFrame(renderLoop);
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll(); // Kích hoạt ngay để nhận diện vị trí scroll ban đầu
     animId = requestAnimationFrame(renderLoop);
 
     return () => {
       window.removeEventListener('scroll', handleScroll);
       cancelAnimationFrame(animId);
     };
-  }, [drawCover]);
+  }, [drawFrame]);
 
   return (
-    <div ref={containerRef} className="relative w-full h-[500vh] bg-[#05070c] text-white font-sans">
-      <div className="sticky top-0 left-0 w-full h-screen overflow-hidden flex items-center justify-center">
+    <div ref={containerRef} className="relative w-full h-[500vh] bg-[#05070c] text-white font-sans overflow-x-clip">
+      <div className="sticky top-0 left-0 w-full h-screen h-[100dvh] overflow-hidden flex items-center justify-center bg-[#05070c]">
         <canvas 
           ref={canvasRef} 
-          className="w-full h-full object-cover select-none pointer-events-none"
+          className="absolute inset-0 w-full h-full block select-none pointer-events-none"
         />
 
         {/* Lớp phủ Nội dung Storyboard theo Scroll */}
-        <div className="absolute inset-0 pointer-events-none p-4 sm:p-8 md:p-12">
+        <div className="absolute inset-0 pointer-events-none p-4 sm:p-8 md:p-12 z-10">
           {STORY_NODES.map((node) => {
             const isVisible = scrollProgress >= node.startProgress && scrollProgress <= node.endProgress;
             return (
@@ -437,19 +504,20 @@ export const generateEmbeddedModeCode = async (
     onProgress,
     checkCancelled,
     speedPreset = 'fast',
-    stylingFramework = 'pure-css'
+    stylingFramework = 'pure-css',
+    enableFrameBlend = true
 ) => {
     if (cachedBitmaps.length === 0) return '';
 
     // Cấu hình theo preset để tối ưu dung lượng và tốc độ sinh Base64
-    let maxScale = 500;
-    let webpQuality = 0.60;
+    let maxScale = 640;
+    let webpQuality = 0.70;
     if (speedPreset === 'fast') {
-        maxScale = 440;
-        webpQuality = 0.55;
+        maxScale = 540;
+        webpQuality = 0.65;
     } else if (speedPreset === 'high') {
-        maxScale = 720;
-        webpQuality = 0.70;
+        maxScale = 960;
+        webpQuality = 0.82;
     }
 
     const firstBm = cachedBitmaps[0];
@@ -523,19 +591,22 @@ export default function App() {
   const [scrollProgress, setScrollProgress] = useState(0);
   const [loadedPercent, setLoadedPercent] = useState(0);
 
+  const targetProgressRef = useRef(0);
+  const smoothProgressRef = useRef(0);
+
   // 1. Khởi tạo và nạp Image objects từ mảng Base64 có sẵn
   useEffect(() => {
     const images = [];
     let loaded = 0;
 
-    EMBEDDED_FRAMES.forEach((b64) => {
+    EMBEDDED_FRAMES.forEach((b64, idx) => {
       const img = new Image();
       img.src = b64;
       img.onload = () => {
         loaded++;
         setLoadedPercent(Math.round((loaded / TOTAL_FRAMES) * 100));
         if (loaded === 1 && canvasRef.current) {
-          drawCover(img, 1.0);
+          drawFrame(0);
         }
       };
       images.push(img);
@@ -543,25 +614,53 @@ export default function App() {
     imagesRef.current = images;
   }, []);
 
-  // 2. Vẽ hình ảnh phủ kín Canvas - Tự động detect tỷ lệ video & màn hình
-  const drawCover = useCallback((img, alpha = 1.0) => {
+  // 2. Hàm vẽ frame lên Canvas với tỷ lệ Cover chuẩn xác, tự động căn giữa không bị méo/bể hình
+  const drawFrame = useCallback((frameIdx, blendIdx = -1, fraction = 0) => {
     const canvas = canvasRef.current;
-    if (!canvas || !img) return;
-    const ctx = canvas.getContext('2d');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) return;
+
     const cw = canvas.width;
     const ch = canvas.height;
-    const sw = img.naturalWidth || img.width;
-    const sh = img.naturalHeight || img.height;
-    if (!sw || !sh) return;
+    if (!cw || !ch) return;
 
+    let img1 = imagesRef.current[frameIdx];
+    if (!img1 || !img1.complete || !img1.naturalWidth) {
+      for (let o = 1; o < TOTAL_FRAMES; o++) {
+        const prev = imagesRef.current[Math.max(0, frameIdx - o)];
+        if (prev && prev.complete && prev.naturalWidth) { img1 = prev; break; }
+        const next = imagesRef.current[Math.min(TOTAL_FRAMES - 1, frameIdx + o)];
+        if (next && next.complete && next.naturalWidth) { img1 = next; break; }
+      }
+    }
+    if (!img1 || !img1.naturalWidth) return;
+
+    const sw = img1.naturalWidth || img1.width;
+    const sh = img1.naturalHeight || img1.height;
     const ratio = Math.max(cw / sw, ch / sh);
     const nw = sw * ratio;
     const nh = sh * ratio;
     const cx = (cw - nw) * 0.5;
     const cy = (ch - nh) * 0.5;
 
-    ctx.globalAlpha = alpha;
-    ctx.drawImage(img, cx, cy, nw, nh);
+    ctx.fillStyle = '#05070c';
+    ctx.fillRect(0, 0, cw, ch);
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    ctx.globalAlpha = 1.0;
+    ctx.drawImage(img1, cx, cy, nw, nh);
+
+    if (blendIdx >= 0 && fraction > 0.02 && blendIdx !== frameIdx) {
+      const img2 = imagesRef.current[blendIdx];
+      if (img2 && img2.complete && img2.naturalWidth && img2 !== img1) {
+        ctx.globalAlpha = fraction;
+        ctx.drawImage(img2, cx, cy, nw, nh);
+        ctx.globalAlpha = 1.0;
+      }
+    }
   }, []);
 
   // 3. Tự động resize Canvas theo phân giải màn hình & Device Pixel Ratio (DPR)
@@ -571,6 +670,9 @@ export default function App() {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       canvasRef.current.width = window.innerWidth * dpr;
       canvasRef.current.height = window.innerHeight * dpr;
+
+      const curIdx = Math.min(Math.max(0, Math.floor(smoothProgressRef.current * (TOTAL_FRAMES - 1))), TOTAL_FRAMES - 1);
+      drawFrame(curIdx);
     };
 
     window.addEventListener('resize', handleResize);
@@ -581,56 +683,51 @@ export default function App() {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('orientationchange', handleResize);
     };
-  }, []);
+  }, [drawFrame]);
 
   // 4. Vòng lặp render đồng bộ LERP + Sub-frame Blending
   useEffect(() => {
     let animId;
-    let targetProgress = 0;
-    let smoothProgress = 0;
     let lastTime = performance.now();
 
     const handleScroll = () => {
       if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
       const total = containerRef.current.offsetHeight - window.innerHeight;
-      targetProgress = Math.min(Math.max(-rect.top / (total || 1), 0), 1);
+      targetProgressRef.current = Math.min(Math.max(-rect.top / (total || 1), 0), 1);
     };
 
     const renderLoop = (timestamp) => {
       const dt = Math.min((timestamp - lastTime) / 1000, 0.1);
       lastTime = timestamp;
 
+      const diff = targetProgressRef.current - smoothProgressRef.current;
       const step = 1 - Math.exp(-12.0 * dt);
-      smoothProgress += (targetProgress - smoothProgress) * step;
-      setScrollProgress(smoothProgress);
 
-      const exact = smoothProgress * (TOTAL_FRAMES - 1);
-      const baseIdx = Math.floor(exact);
-      const nextIdx = Math.min(baseIdx + 1, TOTAL_FRAMES - 1);
-      const fraction = exact - baseIdx;
+      if (Math.abs(diff) > 0.0001) {
+        smoothProgressRef.current += diff * step;
+        setScrollProgress(smoothProgressRef.current);
 
-      const img1 = imagesRef.current[baseIdx];
-      const img2 = imagesRef.current[nextIdx];
+        const exact = smoothProgressRef.current * (TOTAL_FRAMES - 1);
+        const baseIdx = Math.floor(exact);
+${enableFrameBlend ? `        const nextIdx = Math.min(baseIdx + 1, TOTAL_FRAMES - 1);
+        const fraction = exact - baseIdx;
 
-      if (img1 && img1.complete) {
-        drawCover(img1, 1.0);
-        if (fraction > 0.02 && img2 && img2.complete && img1 !== img2) {
-          drawCover(img2, fraction);
-        }
+        drawFrame(baseIdx, nextIdx, fraction);` : `        drawFrame(baseIdx);`}
       }
 
       animId = requestAnimationFrame(renderLoop);
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
     animId = requestAnimationFrame(renderLoop);
 
     return () => {
       window.removeEventListener('scroll', handleScroll);
       cancelAnimationFrame(animId);
     };
-  }, [drawCover]);
+  }, [drawFrame]);
 
   const getPosClass = (pos) => {
     switch (pos) {
@@ -647,10 +744,12 @@ export default function App() {
     <div ref={containerRef} className="v-scroll-container">
       {/* Pure CSS độc lập hoàn toàn - Zero Dependencies */}
       <style>{\`
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; background: #05070c; color: #fff; width: 100%; min-height: 100%; overflow-x: clip; }
         .v-scroll-container { position: relative; width: 100%; height: 500vh; background-color: #05070c; color: #fff; font-family: system-ui, -apple-system, sans-serif; }
-        .v-viewport { position: sticky; top: 0; left: 0; width: 100%; height: 100vh; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-        .v-canvas { width: 100%; height: 100%; object-fit: cover; pointer-events: none; user-select: none; }
-        .v-overlay-layer { position: absolute; inset: 0; pointer-events: none; padding: 24px; box-sizing: border-box; }
+        .v-viewport { position: sticky; top: 0; left: 0; width: 100vw; height: 100vh; height: 100dvh; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #05070c; }
+        .v-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; user-select: none; }
+        .v-overlay-layer { position: absolute; inset: 0; pointer-events: none; padding: 24px; box-sizing: border-box; z-index: 10; }
         .v-node { position: absolute; max-width: 500px; transition: all 0.7s cubic-bezier(0.16, 1, 0.3, 1); }
         .v-visible { opacity: 1; transform: translateY(0); filter: blur(0); pointer-events: auto; }
         .v-hidden { opacity: 0; transform: translateY(24px); filter: blur(8px); pointer-events: none; }
@@ -664,7 +763,7 @@ export default function App() {
         .v-desc { margin-top: 10px; font-size: 15px; color: #cbd5e1; line-height: 1.6; background: rgba(0,0,0,0.5); backdrop-filter: blur(12px); padding: 14px 18px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.1); }
         .v-btn { margin-top: 14px; padding: 10px 22px; background: #38bdf8; color: #000; font-weight: 800; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; border: none; border-radius: 12px; cursor: pointer; box-shadow: 0 4px 15px rgba(56, 189, 248, 0.3); transition: all 0.2s; }
         .v-btn:hover { background: #7dd3fc; transform: translateY(-2px); }
-        .v-loader { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(5,7,12,0.85); font-family: monospace; font-size: 13px; color: #38bdf8; }
+        .v-loader { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(5,7,12,0.85); font-family: monospace; font-size: 13px; color: #38bdf8; z-index: 20; }
         @media (max-width: 640px) {
           .v-pos-tl, .v-pos-bl { left: 1rem; right: 1rem; }
           .v-pos-tr, .v-pos-br { right: 1rem; left: 1rem; }
@@ -729,6 +828,8 @@ export default function App() {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const imagesRef = useRef([]);
+  const targetProgressRef = useRef(0);
+  const smoothProgressRef = useRef(0);
   const [scrollProgress, setScrollProgress] = useState(0);
   const [loadedPercent, setLoadedPercent] = useState(0);
 
@@ -744,7 +845,7 @@ export default function App() {
         loaded++;
         setLoadedPercent(Math.round((loaded / TOTAL_FRAMES) * 100));
         if (loaded === 1 && canvasRef.current) {
-          drawCover(img, 1.0);
+          drawFrame(0);
         }
       };
       images.push(img);
@@ -752,25 +853,53 @@ export default function App() {
     imagesRef.current = images;
   }, []);
 
-  // 2. Vẽ hình ảnh phủ kín Canvas - Tự động detect tỷ lệ video & màn hình
-  const drawCover = useCallback((img, alpha = 1.0) => {
+  // 2. Vẽ hình ảnh phủ kín Canvas - Tự động detect tỷ lệ video & màn hình + Fallback an toàn
+  const drawFrame = useCallback((frameIdx, blendIdx = -1, fraction = 0) => {
     const canvas = canvasRef.current;
-    if (!canvas || !img) return;
-    const ctx = canvas.getContext('2d');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) return;
+
     const cw = canvas.width;
     const ch = canvas.height;
-    const sw = img.naturalWidth || img.width;
-    const sh = img.naturalHeight || img.height;
-    if (!sw || !sh) return;
+    if (!cw || !ch) return;
 
+    let img1 = imagesRef.current[frameIdx];
+    if (!img1 || !img1.complete || !img1.naturalWidth) {
+      for (let o = 1; o < TOTAL_FRAMES; o++) {
+        const prev = imagesRef.current[Math.max(0, frameIdx - o)];
+        if (prev && prev.complete && prev.naturalWidth) { img1 = prev; break; }
+        const next = imagesRef.current[Math.min(TOTAL_FRAMES - 1, frameIdx + o)];
+        if (next && next.complete && next.naturalWidth) { img1 = next; break; }
+      }
+    }
+    if (!img1 || !img1.naturalWidth) return;
+
+    const sw = img1.naturalWidth || img1.width;
+    const sh = img1.naturalHeight || img1.height;
     const ratio = Math.max(cw / sw, ch / sh);
     const nw = sw * ratio;
     const nh = sh * ratio;
     const cx = (cw - nw) * 0.5;
     const cy = (ch - nh) * 0.5;
 
-    ctx.globalAlpha = alpha;
-    ctx.drawImage(img, cx, cy, nw, nh);
+    ctx.fillStyle = '#05070c';
+    ctx.fillRect(0, 0, cw, ch);
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    ctx.globalAlpha = 1.0;
+    ctx.drawImage(img1, cx, cy, nw, nh);
+
+    if (blendIdx >= 0 && fraction > 0.02 && blendIdx !== frameIdx) {
+      const img2 = imagesRef.current[blendIdx];
+      if (img2 && img2.complete && img2.naturalWidth && img2 !== img1) {
+        ctx.globalAlpha = fraction;
+        ctx.drawImage(img2, cx, cy, nw, nh);
+        ctx.globalAlpha = 1.0;
+      }
+    }
   }, []);
 
   // 3. Tự động resize Canvas theo phân giải màn hình & Device Pixel Ratio (DPR)
@@ -780,6 +909,9 @@ export default function App() {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       canvasRef.current.width = window.innerWidth * dpr;
       canvasRef.current.height = window.innerHeight * dpr;
+
+      const curIdx = Math.min(Math.max(0, Math.floor(smoothProgressRef.current * (TOTAL_FRAMES - 1))), TOTAL_FRAMES - 1);
+      drawFrame(curIdx);
     };
 
     window.addEventListener('resize', handleResize);
@@ -790,67 +922,62 @@ export default function App() {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('orientationchange', handleResize);
     };
-  }, []);
+  }, [drawFrame]);
 
   // 4. Vòng lặp render đồng bộ LERP + Sub-frame Blending
   useEffect(() => {
     let animId;
-    let targetProgress = 0;
-    let smoothProgress = 0;
     let lastTime = performance.now();
 
     const handleScroll = () => {
       if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
       const total = containerRef.current.offsetHeight - window.innerHeight;
-      targetProgress = Math.min(Math.max(-rect.top / (total || 1), 0), 1);
+      targetProgressRef.current = Math.min(Math.max(-rect.top / (total || 1), 0), 1);
     };
 
     const renderLoop = (timestamp) => {
       const dt = Math.min((timestamp - lastTime) / 1000, 0.1);
       lastTime = timestamp;
 
+      const diff = targetProgressRef.current - smoothProgressRef.current;
       const step = 1 - Math.exp(-12.0 * dt);
-      smoothProgress += (targetProgress - smoothProgress) * step;
-      setScrollProgress(smoothProgress);
 
-      const exact = smoothProgress * (TOTAL_FRAMES - 1);
-      const baseIdx = Math.floor(exact);
-      const nextIdx = Math.min(baseIdx + 1, TOTAL_FRAMES - 1);
-      const fraction = exact - baseIdx;
+      if (Math.abs(diff) > 0.0001) {
+        smoothProgressRef.current += diff * step;
+        setScrollProgress(smoothProgressRef.current);
 
-      const img1 = imagesRef.current[baseIdx];
-      const img2 = imagesRef.current[nextIdx];
+        const exact = smoothProgressRef.current * (TOTAL_FRAMES - 1);
+        const baseIdx = Math.floor(exact);
+${enableFrameBlend ? `        const nextIdx = Math.min(baseIdx + 1, TOTAL_FRAMES - 1);
+        const fraction = exact - baseIdx;
 
-      if (img1 && img1.complete) {
-        drawCover(img1, 1.0);
-        if (fraction > 0.02 && img2 && img2.complete && img1 !== img2) {
-          drawCover(img2, fraction);
-        }
+        drawFrame(baseIdx, nextIdx, fraction);` : `        drawFrame(baseIdx);`}
       }
 
       animId = requestAnimationFrame(renderLoop);
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
     animId = requestAnimationFrame(renderLoop);
 
     return () => {
       window.removeEventListener('scroll', handleScroll);
       cancelAnimationFrame(animId);
     };
-  }, [drawCover]);
+  }, [drawFrame]);
 
   return (
-    <div ref={containerRef} className="relative w-full h-[500vh] bg-[#05070c] text-white font-sans">
-      <div className="sticky top-0 left-0 w-full h-screen overflow-hidden flex items-center justify-center">
+    <div ref={containerRef} className="relative w-full h-[500vh] bg-[#05070c] text-white font-sans overflow-x-clip">
+      <div className="sticky top-0 left-0 w-full h-screen h-[100dvh] overflow-hidden flex items-center justify-center bg-[#05070c]">
         <canvas 
           ref={canvasRef} 
-          className="w-full h-full object-cover select-none pointer-events-none"
+          className="absolute inset-0 w-full h-full block select-none pointer-events-none"
         />
 
         {/* Lớp phủ Nội dung Storyboard theo Scroll */}
-        <div className="absolute inset-0 pointer-events-none p-4 sm:p-8 md:p-12">
+        <div className="absolute inset-0 pointer-events-none p-4 sm:p-8 md:p-12 z-10">
           {STORY_NODES.map((node) => {
             const isVisible = scrollProgress >= node.startProgress && scrollProgress <= node.endProgress;
             return (
