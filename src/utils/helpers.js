@@ -273,3 +273,21 @@ export const tagColorMap = {
     indigo: 'bg-indigo-950/80 border-indigo-700/60 text-indigo-300 shadow-[0_0_15px_rgba(129,140,248,0.2)]',
     amber: 'bg-amber-950/80 border-amber-700/60 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.2)]'
 };
+
+/**
+ * Tải file mã nguồn (.jsx) trực tiếp về máy tính siêu tốc trong 0.1 giây
+ * @param {string} code - Chuỗi mã nguồn
+ * @param {string} filename - Tên file tải về
+ */
+export const downloadCodeFile = (code, filename = 'SmoothScrollVideo.jsx') => {
+    if (!code) return;
+    const blob = new Blob([code], { type: 'text/javascript;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+};

@@ -1,8 +1,9 @@
 import React from 'react';
-import { FileArchive, Download, Info } from 'lucide-react';
+import { FileArchive, Download, Info, X } from 'lucide-react';
 
 /**
  * Modal Xuất Trọn Bộ Frames dạng ZIP
+ * Tích hợp nút HỦY khi đang nén và tải gói ZIP
  */
 export default function ExportZipModal({
     cachedBitmapsCount,
@@ -11,6 +12,7 @@ export default function ExportZipModal({
     isZipping,
     zipProgress,
     onDownloadZip,
+    onCancelZip,
     onClose,
 }) {
     return (
@@ -23,8 +25,9 @@ export default function ExportZipModal({
                         <h3 className="font-bold text-white text-base sm:text-lg">Xuất & Tải Gói Frame Nén</h3>
                     </div>
                     <button
-                        onClick={() => !isZipping && onClose()}
+                        onClick={isZipping ? onCancelZip : onClose}
                         className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white transition"
+                        title={isZipping ? 'Hủy tải và đóng' : 'Đóng'}
                     >
                         ✕
                     </button>
@@ -70,9 +73,12 @@ export default function ExportZipModal({
                     </div>
 
                     {isZipping ? (
-                        <div className="space-y-3 pt-2">
+                        <div className="p-4 bg-slate-950/80 border border-cyan-500/30 rounded-2xl space-y-3 shadow-lg">
                             <div className="flex justify-between items-center text-xs font-mono">
-                                <span className="text-slate-300">Đang đóng gói file ZIP...</span>
+                                <span className="text-slate-300 font-medium flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+                                    Đang nén & đóng gói ZIP...
+                                </span>
                                 <span className="text-cyan-400 font-bold">{zipProgress}%</span>
                             </div>
                             <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden p-0.5">
@@ -81,6 +87,9 @@ export default function ExportZipModal({
                                     style={{ width: `${zipProgress}%` }}
                                 />
                             </div>
+                            <p className="text-[11px] text-slate-400">
+                                Bạn có thể hủy bỏ tiến trình nén bất kỳ lúc nào bằng nút "Hủy tải" bên dưới.
+                            </p>
                         </div>
                     ) : (
                         <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex items-start gap-3">
@@ -93,13 +102,23 @@ export default function ExportZipModal({
                 </div>
 
                 <div className="p-4 bg-slate-950/60 border-t border-slate-800 flex justify-end gap-3">
-                    <button
-                        onClick={onClose}
-                        disabled={isZipping}
-                        className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-medium text-xs transition disabled:opacity-50"
-                    >
-                        Hủy
-                    </button>
+                    {isZipping ? (
+                        <button
+                            onClick={onCancelZip}
+                            className="px-4 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-300 font-semibold text-xs transition flex items-center gap-1.5 active:scale-95 shadow-md shadow-red-950/40"
+                        >
+                            <X className="w-3.5 h-3.5 text-red-400" />
+                            <span>Hủy đóng gói</span>
+                        </button>
+                    ) : (
+                        <button
+                            onClick={onClose}
+                            className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-medium text-xs transition"
+                        >
+                            Đóng
+                        </button>
+                    )}
+
                     <button
                         onClick={onDownloadZip}
                         disabled={isZipping || cachedBitmapsCount === 0}
@@ -114,4 +133,3 @@ export default function ExportZipModal({
         </div>
     );
 }
-

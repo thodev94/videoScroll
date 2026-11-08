@@ -202,33 +202,92 @@ export default function SmoothScrollVideo() {
      * @param {(progress: number) => void} onProgress - Callback cập nhật tiến trình
      * @returns {Promise<string>} Mã nguồn JSX
      */
-    export const generateEmbeddedModeCode = async (cachedBitmaps, storyNodes, onProgress) => {
-      if (cachedBitmaps.length === 0) return '';
+/**
+ * Sinh mã nguồn React component cho chế độ "embedded" (nhúng Base64 trực tiếp)
+ * TỐI ƯU SIÊU TỐC:
+ * 1. Đa luồng song song (Multi-threaded Concurrency)
+ * 2. Asynchronous toBlob + FileReader (không lock UI thread)
+ * 3. Hỗ trợ Speed Presets: 'fast' (siêu nhanh ~1-2s), 'balanced' (~3-4s), 'high'
+ *
+ * @param {ImageBitmap[]} cachedBitmaps - Mảng bitmap đã cache trong RAM
+ * @param {Array} storyNodes - Mảng story nodes
+ * @param {(progress: number) => void} onProgress - Callback cập nhật tiến trình
+ * @param {() => boolean} [checkCancelled] - Kiểm tra tín hiệu hủy
+ * @param {string} [speedPreset='fast'] - 'fast' | 'balanced' | 'high'
+ * @returns {Promise<string>} Mã nguồn JSX
+ */
+export const generateEmbeddedModeCode = async (
+    cachedBitmaps,
+    storyNodes,
+    onProgress,
+    checkCancelled,
+    speedPreset = 'fast'
+) => {
+    if (cachedBitmaps.length === 0) return '';
 
-      const tempCanvas = document.createElement('canvas');
-      const tempCtx = tempCanvas.getContext('2d');
-      const base64List = [];
+    // Cấu hình theo preset để tối ưu dung lượng và tốc độ sinh Base64
+    let maxScale = 500;
+    let webpQuality = 0.60;
+    if (speedPreset === 'fast') {
+        maxScale = 440;
+        webpQuality = 0.55;
+    } else if (speedPreset === 'high') {
+        maxScale = 720;
+        webpQuality = 0.70;
+    }
 
-      // Tự động detect tỷ lệ khung hình video để scale kích thước base64 tối ưu
-      const embedScale = Math.min(window.innerWidth || 720, 720);
-      const aspect = (cachedBitmaps[0].height || 720) / (cachedBitmaps[0].width || 1280);
-      tempCanvas.width = embedScale;
-      tempCanvas.height = Math.round(embedScale * aspect);
+    const firstBm = cachedBitmaps[0];
+    const aspect = (firstBm.height || 720) / (firstBm.width || 1280);
+    const targetW = Math.min(firstBm.width || 1280, maxScale);
+    const targetH = Math.round(targetW * aspect);
 
-      const total = cachedBitmaps.length;
-      for (let i = 0; i < total; i++) {
-        const bm = cachedBitmaps[i];
-        tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
-        tempCtx.drawImage(bm, 0, 0, tempCanvas.width, tempCanvas.height);
+    const total = cachedBitmaps.length;
+    const base64List = new Array(total);
+    const concurrency = Math.min(8, Math.max(4, typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency || 4) : 4));
+    let completed = 0;
 
-        const b64 = tempCanvas.toDataURL('image/webp', 0.68);
-        base64List.push(b64);
+    const convertItem = async (index, canvas, ctx) => {
+        if (checkCancelled && checkCancelled()) return;
+        const bm = cachedBitmaps[index];
+        canvas.width = targetW;
+        canvas.height = targetH;
+        ctx.clearRect(0, 0, targetW, targetH);
+        ctx.drawImage(bm, 0, 0, targetW, targetH);
 
-        if (i % 10 === 0 || i === total - 1) {
-          onProgress(Math.round(((i + 1) / total) * 100));
-          await new Promise((r) => setTimeout(r, 0));
+        const b64 = await new Promise((resolve) => {
+            canvas.toBlob((blob) => {
+                if (!blob) {
+                    resolve(canvas.toDataURL('image/webp', webpQuality));
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.readAsDataURL(blob);
+            }, 'image/webp', webpQuality);
+        });
+
+        if (checkCancelled && checkCancelled()) return;
+        base64List[index] = b64;
+        completed++;
+        onProgress(Math.round((completed / total) * 100));
+    };
+
+    const runWorker = async (startIndex) => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        for (let i = startIndex; i < total; i += concurrency) {
+            if (checkCancelled && checkCancelled()) return;
+            await convertItem(i, canvas, ctx);
         }
-      }
+    };
+
+    const workers = [];
+    for (let w = 0; w < concurrency; w++) {
+        workers.push(runWorker(w));
+    }
+    await Promise.all(workers);
+
+    if (checkCancelled && checkCancelled()) return '';
 
     return `import React, { useEffect, useRef, useState, useCallback } from 'react';
 

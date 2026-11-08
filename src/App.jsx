@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 // Hooks
 import useFrameEngine from './hooks/useFrameEngine';
@@ -49,7 +49,11 @@ export default function App() {
     const [zipProgress, setZipProgress] = useState(0);
     const [isZipping, setIsZipping] = useState(false);
 
-    // Custom Hooks - Tích hợp đầy đủ Auto-Detect Ratio & Responsive Screen
+    // Refs hỗ trợ hủy bỏ tiến trình
+    const cancelZipRef = useRef(false);
+    const cancelBase64Ref = useRef(false);
+
+    // Custom Hooks - Tích hợp Auto-Detect Ratio, Responsive & Nút HỦY trích xuất source
     const {
         isProcessing,
         processProgress,
@@ -65,6 +69,7 @@ export default function App() {
         videoRef,
         renderFrameWithBlending,
         extractFrames,
+        cancelExtraction,
     } = useFrameEngine({ exportWidth, enableFrameBlend });
 
     const {
@@ -99,14 +104,28 @@ export default function App() {
         setTimeout(() => setCopiedTab(null), 2500);
     };
 
+    // Hủy bỏ đóng gói ZIP
+    const handleCancelZip = () => {
+        cancelZipRef.current = true;
+        setIsZipping(false);
+        setZipProgress(0);
+    };
+
     // Đóng gói và tải trọn bộ frames dạng ZIP
     const handleDownloadZip = async () => {
         if (cachedBitmaps.length === 0) return;
         setIsZipping(true);
         setZipProgress(0);
+        cancelZipRef.current = false;
 
         try {
-            await downloadFramesAsZip(cachedBitmaps, exportQuality, videoName, setZipProgress);
+            await downloadFramesAsZip(
+                cachedBitmaps,
+                exportQuality,
+                videoName,
+                setZipProgress,
+                () => cancelZipRef.current
+            );
         } catch (err) {
             console.error("Lỗi đóng gói ZIP:", err);
         } finally {
@@ -114,15 +133,31 @@ export default function App() {
         }
     };
 
-    // Tạo chuỗi mã nguồn chứa mảng Base64 của toàn bộ Frame
-    const generateEmbeddedCode = useCallback(async () => {
+    // Hủy bỏ sinh Base64
+    const handleCancelBase64 = () => {
+        cancelBase64Ref.current = true;
+        setIsGeneratingBase64(false);
+        setBase64Progress(0);
+    };
+
+    // Tạo chuỗi mã nguồn chứa mảng Base64 của toàn bộ Frame đa luồng siêu tốc
+    const generateEmbeddedCode = useCallback(async (preset = 'fast') => {
         if (cachedBitmaps.length === 0) return;
         setIsGeneratingBase64(true);
         setBase64Progress(0);
+        cancelBase64Ref.current = false;
 
         try {
-            const code = await generateEmbeddedModeCode(cachedBitmaps, storyNodes, setBase64Progress);
-            setEmbeddedFramesCode(code);
+            const code = await generateEmbeddedModeCode(
+                cachedBitmaps,
+                storyNodes,
+                setBase64Progress,
+                () => cancelBase64Ref.current,
+                preset
+            );
+            if (code) {
+                setEmbeddedFramesCode(code);
+            }
         } finally {
             setIsGeneratingBase64(false);
         }
@@ -177,7 +212,7 @@ export default function App() {
                 onLoadedMetadata={handleLoadedMetadata}
             />
 
-            {/* Floating Header Toolbar - Tích hợp Auto Detect Ratio & Responsive Mobile Menu */}
+            {/* Floating Header Toolbar */}
             <Header
                 videoName={videoName}
                 enableFrameBlend={enableFrameBlend}
@@ -199,7 +234,7 @@ export default function App() {
                 setRenderFitMode={setRenderFitMode}
             />
 
-            {/* Main Sticky Scroll Section - Tự động đồng bộ DPR & Render Adaptive */}
+            {/* Main Sticky Scroll Section - Tự động đồng bộ DPR & Nút HỦY nạp source */}
             <ScrollViewport
                 containerRef={containerRef}
                 viewportRef={viewportRef}
@@ -207,6 +242,7 @@ export default function App() {
                 isProcessing={isProcessing}
                 framesCount={framesCount}
                 processProgress={processProgress}
+                onCancelProcessing={cancelExtraction}
                 storyNodes={storyNodes}
                 scrollProgress={scrollProgress}
                 cachedBitmapsCount={cachedBitmaps.length}
@@ -247,11 +283,12 @@ export default function App() {
                     reactComponentCode={reactComponentCode}
                     cachedBitmapsCount={cachedBitmaps.length}
                     onGenerateEmbeddedCode={generateEmbeddedCode}
+                    onCancelBase64={handleCancelBase64}
                     onClose={() => setActiveModal(null)}
                 />
             )}
 
-            {/* Modal Xuất Trọn Bộ Frames dạng ZIP */}
+            {/* Modal Xuất Trọn Bộ Frames dạng ZIP - Hỗ trợ nút HỦY */}
             {activeModal === 'export-zip' && (
                 <ExportZipModal
                     cachedBitmapsCount={cachedBitmaps.length}
@@ -260,6 +297,7 @@ export default function App() {
                     isZipping={isZipping}
                     zipProgress={zipProgress}
                     onDownloadZip={handleDownloadZip}
+                    onCancelZip={handleCancelZip}
                     onClose={() => setActiveModal(null)}
                 />
             )}
