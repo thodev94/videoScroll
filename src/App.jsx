@@ -32,6 +32,8 @@ export default function App() {
 
     // Chế độ xuất Code: 'embedded' hoặc 'folder'
     const [codeExportMode, setCodeExportMode] = useState('embedded');
+    // Định dạng Styling: 'pure-css' (Thuần CSS - Zero Dependencies) hoặc 'tailwind'
+    const [stylingFramework, setStylingFramework] = useState('pure-css');
     const [embeddedFramesCode, setEmbeddedFramesCode] = useState('');
     const [isGeneratingBase64, setIsGeneratingBase64] = useState(false);
     const [base64Progress, setBase64Progress] = useState(0);
@@ -141,7 +143,7 @@ export default function App() {
     };
 
     // Tạo chuỗi mã nguồn chứa mảng Base64 của toàn bộ Frame đa luồng siêu tốc
-    const generateEmbeddedCode = useCallback(async (preset = 'fast') => {
+    const generateEmbeddedCode = useCallback(async (preset = 'fast', framework = stylingFramework) => {
         if (cachedBitmaps.length === 0) return;
         setIsGeneratingBase64(true);
         setBase64Progress(0);
@@ -153,7 +155,8 @@ export default function App() {
                 storyNodes,
                 setBase64Progress,
                 () => cancelBase64Ref.current,
-                preset
+                preset,
+                framework
             );
             if (code) {
                 setEmbeddedFramesCode(code);
@@ -161,41 +164,48 @@ export default function App() {
         } finally {
             setIsGeneratingBase64(false);
         }
-    }, [cachedBitmaps, storyNodes]);
+    }, [cachedBitmaps, storyNodes, stylingFramework]);
 
     // Tự động sinh mã nguồn khi mở modal Xuất Code nếu ở chế độ nhúng
     useEffect(() => {
         if (activeModal === 'export-code' && codeExportMode === 'embedded' && !embeddedFramesCode) {
-            generateEmbeddedCode();
+            generateEmbeddedCode('fast', stylingFramework);
         }
-    }, [activeModal, codeExportMode, embeddedFramesCode, generateEmbeddedCode]);
-
-    // Code React Component cho chế độ folder
-    const reactComponentCode = generateFolderModeCode(cachedBitmaps.length || framesCount, storyNodes);
+    }, [activeModal, codeExportMode, embeddedFramesCode, generateEmbeddedCode, stylingFramework]);
 
     // --- Story Node Management ---
     const handleAddStoryNode = () => {
+        let nextStart = Math.round(scrollProgress * 20) / 20;
+        if (nextStart >= 0.85) nextStart = 0.5;
+        const nextEnd = Math.min(1.0, Math.round((nextStart + 0.25) * 20) / 20);
+
         const newNode = {
             id: Date.now().toString(),
-            startProgress: Math.min(Math.round(scrollProgress * 10) / 10, 0.7),
-            endProgress: Math.min(Math.round(scrollProgress * 10) / 10 + 0.25, 1.0),
+            startProgress: nextStart,
+            endProgress: nextEnd,
             position: 'center',
             tag: `0${storyNodes.length + 1} / NỘI DUNG MỚI`,
             tagColor: 'cyan',
-            title: 'Tiêu đề mới',
+            title: 'Tiêu đề mốc mới',
             description: 'Mô tả nội dung xuất hiện khi người dùng cuộn đến vị trí này.',
-            ctaText: ''
+            ctaText: '',
+            contentType: 'standard', // 'standard' | 'custom'
+            customHtml: '',
+            customCss: '',
         };
-        setStoryNodes([...storyNodes, newNode]);
+        setStoryNodes(prev => [...prev, newNode]);
         setEditingNodeId(newNode.id);
+        setEmbeddedFramesCode(''); // Đảm bảo code xuất ra luôn cập nhật mới
     };
 
     const handleDeleteNode = (id) => {
-        setStoryNodes(storyNodes.filter(n => n.id !== id));
+        setStoryNodes(prev => prev.filter(n => n.id !== id));
+        setEmbeddedFramesCode('');
     };
 
     const handleUpdateNode = (id, field, value) => {
-        setStoryNodes(storyNodes.map(n => n.id === id ? { ...n, [field]: value } : n));
+        setStoryNodes(prev => prev.map(n => n.id === id ? { ...n, [field]: value } : n));
+        setEmbeddedFramesCode('');
     };
 
     return (
@@ -268,11 +278,13 @@ export default function App() {
                 />
             )}
 
-            {/* Modal Xuất Code React */}
+            {/* Modal Xuất Code React - Hỗ trợ THUẦN CSS & Tải file .jsx */}
             {activeModal === 'export-code' && (
                 <ExportCodeModal
                     codeExportMode={codeExportMode}
                     setCodeExportMode={setCodeExportMode}
+                    stylingFramework={stylingFramework}
+                    setStylingFramework={setStylingFramework}
                     packageManager={packageManager}
                     setPackageManager={setPackageManager}
                     copiedTab={copiedTab}
@@ -280,9 +292,9 @@ export default function App() {
                     isGeneratingBase64={isGeneratingBase64}
                     base64Progress={base64Progress}
                     embeddedFramesCode={embeddedFramesCode}
-                    reactComponentCode={reactComponentCode}
+                    storyNodes={storyNodes}
                     cachedBitmapsCount={cachedBitmaps.length}
-                    onGenerateEmbeddedCode={generateEmbeddedCode}
+                    onGenerateEmbeddedCode={(preset, framework) => generateEmbeddedCode(preset, framework || stylingFramework)}
                     onCancelBase64={handleCancelBase64}
                     onClose={() => setActiveModal(null)}
                 />

@@ -8,16 +8,24 @@ import {
     Sparkles,
     FileArchive,
     Zap,
-    Gauge
+    Palette
 } from 'lucide-react';
-import { getInstallCommand, getQuickInitCommand, downloadCodeFile } from '../../utils/helpers';
+import { getInstallCommand, downloadCodeFile } from '../../utils/helpers';
+import { generateFolderModeCode } from '../../utils/codeGenerators';
 
 /**
- * Modal Xuất Code React - Tích hợp Tải File .jsx Siêu Tốc & Tối Ưu Đa Luồng
+ * Modal Xuất Code React
+ * Hỗ trợ:
+ * 1. Tải trực tiếp file .jsx (1-Click)
+ * 2. Lựa chọn: THUẦN CSS (Zero Dependencies - Không cần Tailwind) vs TAILWIND CSS
+ * 3. Chế độ: Nhúng Base64 All-in-One vs Thư mục ảnh rời
+ * 4. Chế độ nén Base64 đa luồng siêu tốc
  */
 export default function ExportCodeModal({
     codeExportMode,
     setCodeExportMode,
+    stylingFramework = 'pure-css',
+    setStylingFramework,
     packageManager,
     setPackageManager,
     copiedTab,
@@ -25,20 +33,36 @@ export default function ExportCodeModal({
     isGeneratingBase64,
     base64Progress,
     embeddedFramesCode,
-    reactComponentCode,
+    storyNodes,
     cachedBitmapsCount,
     onGenerateEmbeddedCode,
     onCancelBase64,
     onClose,
 }) {
-    const [speedPreset, setSpeedPreset] = useState('fast'); // 'fast' | 'balanced' | 'high'
+    const [speedPreset, setSpeedPreset] = useState('fast');
 
-    const activeCode = codeExportMode === 'embedded' ? embeddedFramesCode : reactComponentCode;
+    // Tạo code theo framework styling đã chọn theo thời gian thực
+    const folderCode = generateFolderModeCode(cachedBitmapsCount || 200, storyNodes, stylingFramework);
+    const activeCode = codeExportMode === 'embedded' ? embeddedFramesCode : folderCode;
     const activeFileName = codeExportMode === 'embedded' ? 'SingleFileScrollVideo.jsx' : 'SmoothScrollVideo.jsx';
 
     const handleDownloadFile = () => {
         if (!activeCode) return;
         downloadCodeFile(activeCode, activeFileName);
+    };
+
+    // Câu lệnh cài đặt phụ thuộc theo Framework đã chọn
+    const getDepCommand = () => {
+        if (stylingFramework === 'pure-css') {
+            switch (packageManager) {
+                case 'pnpm': return 'pnpm add react react-dom';
+                case 'yarn': return 'yarn add react react-dom';
+                case 'bun': return 'bun add react react-dom';
+                case 'npm':
+                default: return 'npm install react react-dom';
+            }
+        }
+        return getInstallCommand(packageManager);
     };
 
     return (
@@ -64,12 +88,73 @@ export default function ExportCodeModal({
 
                 <div className="p-4 sm:p-5 overflow-y-auto space-y-4 text-xs sm:text-sm">
 
-                    {/* Box 1: CLI Lệnh Cài Đặt Nhanh 1 Dòng */}
-                    <div className="p-3.5 sm:p-4 bg-slate-950 rounded-2xl border border-cyan-500/30 shadow-lg shadow-cyan-950/40 space-y-3">
+                    {/* LỰA CHỌN PHONG CÁCH CSS: THUẦN CSS VS TAILWIND CSS */}
+                    <div className="p-3.5 bg-slate-950/80 rounded-2xl border border-indigo-500/30 space-y-2">
+                        <div className="flex items-center justify-between">
+                            <span className="font-bold text-white text-xs flex items-center gap-1.5 text-indigo-300">
+                                <Palette className="w-4 h-4 text-indigo-400" />
+                                Định dạng Styling cho File Code tải về:
+                            </span>
+                            <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full font-bold">
+                                {stylingFramework === 'pure-css' ? '⚡ 0 Phụ Thuộc (Zero Dependencies)' : '🎨 Dành cho dự án Tailwind'}
+                            </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <button
+                                onClick={() => {
+                                    setStylingFramework('pure-css');
+                                    if (codeExportMode === 'embedded') {
+                                        onGenerateEmbeddedCode(speedPreset, 'pure-css');
+                                    }
+                                }}
+                                className={`p-2.5 rounded-xl text-left border transition ${
+                                    stylingFramework === 'pure-css'
+                                        ? 'bg-indigo-600/25 border-indigo-500 text-white shadow-md'
+                                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                                }`}
+                            >
+                                <div className="flex justify-between items-center mb-1">
+                                    <span className="font-bold text-xs text-indigo-300">⚡ Thuần CSS (Pure CSS - Khuyên dùng)</span>
+                                    {stylingFramework === 'pure-css' && <Check className="w-3.5 h-3.5 text-indigo-400" />}
+                                </div>
+                                <p className="text-[11px] text-slate-400">
+                                    Style được nhúng sẵn hoàn toàn trong component. Không cần cài Tailwind hay thư viện UI nào, chạy được trên mọi dự án React!
+                                </p>
+                            </button>
+
+                            <button
+                                onClick={() => {
+                                    setStylingFramework('tailwind');
+                                    if (codeExportMode === 'embedded') {
+                                        onGenerateEmbeddedCode(speedPreset, 'tailwind');
+                                    }
+                                }}
+                                className={`p-2.5 rounded-xl text-left border transition ${
+                                    stylingFramework === 'tailwind'
+                                        ? 'bg-cyan-600/25 border-cyan-500 text-white shadow-md'
+                                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                                }`}
+                            >
+                                <div className="flex justify-between items-center mb-1">
+                                    <span className="font-bold text-xs text-cyan-300">🎨 Tailwind CSS</span>
+                                    {stylingFramework === 'tailwind' && <Check className="w-3.5 h-3.5 text-cyan-400" />}
+                                </div>
+                                <p className="text-[11px] text-slate-400">
+                                    Sử dụng các class tiện ích Tailwind CSS (thích hợp cho các dự án Next.js, Vite đã cấu hình sẵn Tailwind).
+                                </p>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Box Lệnh CLI Cài Đặt */}
+                    <div className="p-3.5 bg-slate-950 rounded-2xl border border-slate-800 space-y-2.5">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                             <div className="flex items-center gap-2">
                                 <Terminal className="w-4 h-4 text-cyan-400" />
-                                <span className="font-bold text-white text-xs">Cài đặt dependencies (1 lệnh duy nhất):</span>
+                                <span className="font-bold text-white text-xs">
+                                    {stylingFramework === 'pure-css' ? 'Chỉ cần React chuẩn (Không cần cài thêm thư viện nào):' : 'Cài đặt dependencies cho Tailwind:'}
+                                </span>
                             </div>
 
                             {/* Package Manager Selector */}
@@ -94,10 +179,10 @@ export default function ExportCodeModal({
                         <div className="flex items-center justify-between gap-3 bg-[#070b13] border border-slate-800 rounded-xl px-3.5 py-2 font-mono text-xs">
                             <div className="flex items-center gap-2 truncate">
                                 <span className="text-cyan-500 font-bold select-none">$</span>
-                                <span className="text-emerald-300 font-semibold truncate">{getInstallCommand(packageManager)}</span>
+                                <span className="text-emerald-300 font-semibold truncate">{getDepCommand()}</span>
                             </div>
                             <button
-                                onClick={() => onCopyCode(getInstallCommand(packageManager), 'install-cmd')}
+                                onClick={() => onCopyCode(getDepCommand(), 'install-cmd')}
                                 className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 transition text-[11px] font-bold active:scale-95 shrink-0"
                             >
                                 {copiedTab === 'install-cmd' ? (
@@ -115,7 +200,7 @@ export default function ExportCodeModal({
                         </div>
                     </div>
 
-                    {/* Box 2: Lựa chọn Chế độ Xuất Code */}
+                    {/* Lựa chọn Chế độ Xuất Code */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <button
                             onClick={() => setCodeExportMode('embedded')}
@@ -133,7 +218,7 @@ export default function ExportCodeModal({
                                 {codeExportMode === 'embedded' && <Check className="w-4 h-4 text-cyan-400" />}
                             </div>
                             <p className="text-[11px] text-slate-400 leading-relaxed">
-                                Đã nạp {cachedBitmapsCount} frame vào code. Chỉ 1 file duy nhất, copy hoặc tải về là chạy ngay, không cần lưu trữ ảnh ngoài!
+                                Đã nạp {cachedBitmapsCount} frame vào code. Chỉ 1 file duy nhất, copy hoặc tải về là chạy ngay, không cần thư mục ảnh!
                             </p>
                         </button>
 
@@ -169,42 +254,39 @@ export default function ExportCodeModal({
                                 <button
                                     onClick={() => {
                                         setSpeedPreset('fast');
-                                        onGenerateEmbeddedCode('fast');
+                                        onGenerateEmbeddedCode('fast', stylingFramework);
                                     }}
                                     className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
                                         speedPreset === 'fast'
                                             ? 'bg-amber-400 text-slate-950 shadow'
                                             : 'text-slate-400 hover:text-white'
                                     }`}
-                                    title="Nén siêu nhanh trong 1-2s, kích thước file code cực nhẹ"
                                 >
                                     ⚡ Siêu tốc (440p)
                                 </button>
                                 <button
                                     onClick={() => {
                                         setSpeedPreset('balanced');
-                                        onGenerateEmbeddedCode('balanced');
+                                        onGenerateEmbeddedCode('balanced', stylingFramework);
                                     }}
                                     className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
                                         speedPreset === 'balanced'
                                             ? 'bg-cyan-500 text-slate-950 shadow'
                                             : 'text-slate-400 hover:text-white'
                                     }`}
-                                    title="Cân bằng chất lượng sắc nét HD và tốc độ (~3s)"
                                 >
                                     🎯 Cân bằng (500p)
                                 </button>
                                 <button
                                     onClick={() => {
                                         setSpeedPreset('high');
-                                        onGenerateEmbeddedCode('high');
+                                        onGenerateEmbeddedCode('high', stylingFramework);
                                     }}
                                     className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
                                         speedPreset === 'high'
                                             ? 'bg-indigo-500 text-white shadow'
                                             : 'text-slate-400 hover:text-white'
                                     }`}
-                                    title="Chất lượng siêu nét cao cấp"
                                 >
                                     💎 Sắc nét (720p)
                                 </button>
@@ -216,7 +298,7 @@ export default function ExportCodeModal({
                     <div className="relative rounded-2xl overflow-hidden border border-slate-800 bg-[#05070c]">
                         <div className="flex flex-wrap justify-between items-center px-4 py-2.5 bg-slate-950/90 border-b border-slate-800/80 gap-2">
                             <span className="text-xs font-mono text-slate-400 truncate max-w-xs">
-                                {activeFileName}
+                                {activeFileName} ({stylingFramework === 'pure-css' ? 'Thuần CSS' : 'Tailwind'})
                             </span>
 
                             <div className="flex items-center gap-2">
@@ -282,9 +364,9 @@ export default function ExportCodeModal({
                 {/* Footer Modal */}
                 <div className="p-4 bg-slate-950/60 border-t border-slate-800 flex justify-between items-center text-xs">
                     <span className="text-slate-400 hidden sm:inline">
-                        {codeExportMode === 'embedded'
-                            ? '✨ Bấm "Tải File .jsx" để lưu ngay file vào dự án của bạn!'
-                            : '💡 Chế độ Folder: Tải file .jsx + bấm "Xuất Frame" để lấy thư mục /public/frames/'}
+                        {stylingFramework === 'pure-css'
+                            ? '✨ Chế độ Thuần CSS: Chạy ngay lập tức trên bất kỳ dự án React nào, không cần cài Tailwind!'
+                            : '💡 Chế độ Tailwind: Yêu cầu dự án đã cài đặt Tailwind CSS.'}
                     </span>
                     <button
                         onClick={onClose}
