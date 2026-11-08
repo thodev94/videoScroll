@@ -24,11 +24,11 @@ export default function App() {
     const [videoName, setVideoName] = useState('paraglide-mountain.mp4');
     const [framesCount, setFramesCount] = useState(200);
     const [exportQuality, setExportQuality] = useState(0.85);
-    const [exportWidth] = useState(1280);
+    const [exportWidth, setExportWidth] = useState(1280);
 
     // Motion Settings
     const [enableFrameBlend, setEnableFrameBlend] = useState(true);
-    const [enableMotionBlur] = useState(true);
+    const [enableMotionBlur, setEnableMotionBlur] = useState(true);
 
     // Chế độ xuất Code: 'embedded' hoặc 'folder'
     const [codeExportMode, setCodeExportMode] = useState('embedded');
@@ -49,12 +49,18 @@ export default function App() {
     const [zipProgress, setZipProgress] = useState(0);
     const [isZipping, setIsZipping] = useState(false);
 
-    // Custom Hooks
+    // Custom Hooks - Tích hợp đầy đủ Auto-Detect Ratio & Responsive Screen
     const {
         isProcessing,
         processProgress,
         cachedBitmaps,
+        videoDuration,
         setVideoDuration,
+        videoMetrics,
+        screenMetrics,
+        aspectComparison,
+        renderFitMode,
+        setRenderFitMode,
         canvasRef,
         videoRef,
         renderFrameWithBlending,
@@ -69,15 +75,6 @@ export default function App() {
         viewportRef,
         smoothProgressRef,
     } = useScrollMotion({ renderFrameWithBlending, enableMotionBlur });
-
-    // Resize canvas khi thay đổi kích thước cửa sổ -> re-render frame
-    useEffect(() => {
-        const handleResize = () => {
-            renderFrameWithBlending(smoothProgressRef.current);
-        };
-        window.addEventListener('resize', handleResize);
-        return () => window.removeEventListener('resize', handleResize);
-    }, [renderFrameWithBlending, smoothProgressRef]);
 
     // Load Metadata của Video
     const handleLoadedMetadata = () => {
@@ -180,7 +177,7 @@ export default function App() {
                 onLoadedMetadata={handleLoadedMetadata}
             />
 
-            {/* Floating Header Toolbar */}
+            {/* Floating Header Toolbar - Tích hợp Auto Detect Ratio & Responsive Mobile Menu */}
             <Header
                 videoName={videoName}
                 enableFrameBlend={enableFrameBlend}
@@ -195,9 +192,14 @@ export default function App() {
                 onOpenContentManager={() => setActiveModal('manage-content')}
                 onOpenExportCode={() => setActiveModal('export-code')}
                 onOpenExportZip={() => setActiveModal('export-zip')}
+                videoMetrics={videoMetrics}
+                screenMetrics={screenMetrics}
+                aspectComparison={aspectComparison}
+                renderFitMode={renderFitMode}
+                setRenderFitMode={setRenderFitMode}
             />
 
-            {/* Main Sticky Scroll Section */}
+            {/* Main Sticky Scroll Section - Tự động đồng bộ DPR & Render Adaptive */}
             <ScrollViewport
                 containerRef={containerRef}
                 viewportRef={viewportRef}
@@ -211,6 +213,9 @@ export default function App() {
                 fps={fps}
                 motionVelocity={motionVelocity}
                 enableFrameBlend={enableFrameBlend}
+                videoMetrics={videoMetrics}
+                screenMetrics={screenMetrics}
+                renderFitMode={renderFitMode}
             />
 
             {/* Modal Quản lý & Chèn Content theo Scroll */}
@@ -262,4 +267,3 @@ export default function App() {
         </div>
     );
 }
-
